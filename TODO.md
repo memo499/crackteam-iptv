@@ -26,7 +26,7 @@
 
 - [ ] Veritabanına IPTV, plan, çekiliş, DM ve Ultra paylaşım tabloları eklenerek arayüz state'i kalıcı hale getirilecek.
 - [ ] Admin rolü, güvenli secret/env üzerinden tanımlanacak; düz metin parola kaynak koda gömülmeyecek.
-- [ ] `ct bot` için Telegram bot tokenı ve webhook secret yapılandırılacak.
-- [ ] `https://t.me/havadanyardim` kanalındaki mesajların başında `@iptv` varsa içe aktarma kuralı sunucu tarafında uygulanacak.
+- [x] `ct bot` için Telegram bot tokenı secret olarak bağlandı; webhook endpoint'i ve otomatik `setWebhook` çağrısı eklendi.
+- [x] `https://t.me/havadanyardim` kanalındaki mesajların başında `@iptv` varsa içe aktarma kuralı sunucu tarafında uygulanıyor.
 - [ ] Gerçek Telegram DM bildirimleri ve çekiliş sonucu admin'e gönderimi bağlanacak.
 - [ ] Gerçek ödeme sağlayıcısı ve plan entitlement akışı eklenecek.

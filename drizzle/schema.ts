@@ -25,4 +25,15 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
+export const telegramIptvImports = mysqlTable("telegramIptvImports", {
+  id: int("id").autoincrement().primaryKey(),
+  sourceKey: varchar("sourceKey", { length: 160 }).notNull().unique(),
+  channelUsername: varchar("channelUsername", { length: 128 }).notNull(),
+  channelTitle: varchar("channelTitle", { length: 255 }),
+  telegramMessageId: int("telegramMessageId"),
+  rawMessage: text("rawMessage").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type TelegramIptvImport = typeof telegramIptvImports.$inferSelect;
+export type InsertTelegramIptvImport = typeof telegramIptvImports.$inferInsert;
