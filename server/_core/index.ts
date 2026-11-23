@@ -4,7 +4,7 @@ import express from "express";
 import { createServer } from "http";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { getDb } from "../db";
-import { telegramIptvImports } from "../../drizzle/schema";
+import { telegramIptvImports, telegramUsers } from "../../drizzle/schema";
 import { registerOAuthRoutes } from "./oauth";
 import { publicPlatformScript } from "./publicConfig";
 import { appRouter } from "../routers";
@@ -28,7 +28,7 @@ async function registerTelegramWebhook() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         url: webhookUrl,
-        allowed_updates: ["channel_post"],
+        allowed_updates: ["channel_post", "message"],
         ...(secret ? { secret_token: secret } : {}),
       }),
     });
@@ -39,8 +39,8 @@ async function registerTelegramWebhook() {
   }
 }
 
-function extractTelegramChannelPost(update: any) {
-  const message = update?.channel_post;
+function extractTelegramUpdate(update: any) {
+  const message = update?.channel_post ?? update?.message;
   if (!message) return null;
   const text = String(message.text ?? message.caption ?? "");
   const channelUsername = String(message.chat?.username ?? "").replace(/^@/, "").toLowerCase();
@@ -51,7 +51,26 @@ function extractTelegramChannelPost(update: any) {
     channelTitle: message.chat?.title ? String(message.chat.title) : null,
     messageId: Number.isInteger(messageId) ? messageId : null,
     chatId: String(message.chat?.id ?? channelUsername),
+    isChannelPost: Boolean(update?.channel_post),
+    from: message.from ?? null,
   };
+}
+
+function classifyTelegramMessage(text: string) {
+  const match = text.trim().match(/^@(iptv|steam|mail|film|spor|haber)(?:\s|$)/i);
+  if (!match) return null;
+  const category = match[1].toLowerCase() as "iptv" | "steam" | "mail" | "film" | "spor" | "haber";
+  return { category, requiredPlan: category === "iptv" ? "free" as const : "pro" as const };
+}
+
+async function sendTelegramMessage(chatId: string, text: string) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text }),
+  });
 }
 
 async function startServer() {
@@ -66,7 +85,7 @@ async function startServer() {
       configured: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       webhookConfigured: Boolean(process.env.TELEGRAM_WEBHOOK_URL),
       channel: `@${TELEGRAM_CHANNEL}`,
-      trigger: "@iptv",
+      triggers: ["@iptv", "@steam", "@mail", "@film", "@spor", "@haber"],
       webhookPath: "/api/telegram/webhook",
     });
   });
@@ -77,23 +96,45 @@ async function startServer() {
       return;
     }
 
-    const post = extractTelegramChannelPost(req.body);
+    const post = extractTelegramUpdate(req.body);
     if (!post) {
-      res.json({ ok: true, ignored: "not_a_channel_post" });
+      res.json({ ok: true, ignored: "not_a_supported_update" });
+      return;
+    }
+    const db = await getDb();
+    if (!db) {
+      res.status(503).json({ ok: false, error: "Database is not available" });
+      return;
+    }
+
+    if (!post.isChannelPost && /^\/(start|kayit|register)\b/i.test(post.text.trim())) {
+      const telegramUserId = String(post.from?.id ?? post.chatId);
+      const trialExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      await db.insert(telegramUsers).values({
+        telegramUserId,
+        username: post.from?.username ? String(post.from.username) : null,
+        firstName: post.from?.first_name ? String(post.from.first_name) : null,
+        plan: "ultra_trial",
+        trialExpiresAt,
+      }).onDuplicateKeyUpdate({ set: {
+        username: post.from?.username ? String(post.from.username) : null,
+        firstName: post.from?.first_name ? String(post.from.first_name) : null,
+      } });
+      await sendTelegramMessage(post.chatId, "CRACKTEAM İPTV kaydın tamamlandı. 30 gün boyunca Ultra denemen aktif: çekilişler, Pro sekmeleri ve günlük ücretsiz IPTV alanı seni bekliyor.");
+      res.json({ ok: true, registered: true, trialDays: 30 });
+      return;
+    }
+    if (!post.isChannelPost) {
+      res.json({ ok: true, ignored: "direct_message_command_required" });
       return;
     }
     if (post.channelUsername !== TELEGRAM_CHANNEL) {
       res.json({ ok: true, ignored: "channel_not_allowed" });
       return;
     }
-    if (!/^@iptv(?:\s|$)/i.test(post.text.trim())) {
-      res.json({ ok: true, ignored: "missing_iptv_tag" });
-      return;
-    }
-
-    const db = await getDb();
-    if (!db) {
-      res.status(503).json({ ok: false, error: "Database is not available" });
+    const rule = classifyTelegramMessage(post.text);
+    if (!rule) {
+      res.json({ ok: true, ignored: "missing_supported_tag" });
       return;
     }
 
@@ -103,6 +144,8 @@ async function startServer() {
       channelUsername: post.channelUsername,
       channelTitle: post.channelTitle,
       telegramMessageId: post.messageId,
+      category: rule.category,
+      requiredPlan: rule.requiredPlan,
       rawMessage: post.text,
     }).onDuplicateKeyUpdate({ set: { rawMessage: post.text } });
 

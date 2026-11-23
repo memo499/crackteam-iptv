@@ -27,6 +27,8 @@
 - [ ] Veritabanına IPTV, plan, çekiliş, DM ve Ultra paylaşım tabloları eklenerek arayüz state'i kalıcı hale getirilecek.
 - [ ] Admin rolü, güvenli secret/env üzerinden tanımlanacak; düz metin parola kaynak koda gömülmeyecek.
 - [x] `ct bot` için Telegram bot tokenı secret olarak bağlandı; webhook endpoint'i ve otomatik `setWebhook` çağrısı eklendi.
-- [x] `https://t.me/havadanyardim` kanalındaki mesajların başında `@iptv` varsa içe aktarma kuralı sunucu tarafında uygulanıyor.
+- [x] `https://t.me/havadanyardim` kanalındaki `@iptv`, `@steam`, `@mail`, `@film`, `@spor` ve `@haber` etiketleri kategori/plan bilgisiyle içe aktarılıyor.
+- [x] `/start`, `/kayit` ve `/register` komutlarıyla bot üzerinden kayıt olanlara tek seferlik 30 günlük Ultra denemesi veriliyor.
+- [x] Steam, Mail, Film, Spor ve Haber Pro sekmeleri arayüze ve içerik API'sine eklendi.
 - [ ] Gerçek Telegram DM bildirimleri ve çekiliş sonucu admin'e gönderimi bağlanacak.
 - [ ] Gerçek ödeme sağlayıcısı ve plan entitlement akışı eklenecek.

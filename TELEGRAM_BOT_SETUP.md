@@ -16,7 +16,9 @@ https://YAYINLANAN-DOMAIN/api/telegram/webhook
 
 ## Çalışma kuralı
 
-Bot yalnızca `@havadanyardim` kanalındaki gönderileri dinler. Mesajın veya medya açıklamasının başı büyük/küçük harf duyarsız biçimde `@iptv` ile başlıyorsa mesajın tamamını `telegramIptvImports` tablosuna kaydeder. Aynı Telegram mesajı tekrar gönderilirse ikinci kez oluşturulmaz.
+Bot yalnızca `@havadanyardim` kanalındaki gönderileri dinler. Mesajın veya medya açıklamasının başı büyük/küçük harf duyarsız biçimde aşağıdaki etiketlerden biriyle başlıyorsa mesajın tamamını `telegramIptvImports` tablosuna kaydeder: `@iptv`, `@steam`, `@mail`, `@film`, `@spor`, `@haber`. `@iptv` Free erişimli; diğer sekmeler Pro erişimli işaretlenir. Aynı Telegram mesajı tekrar gönderilirse ikinci kez oluşturulmaz.
+
+Özel mesajda `/start`, `/kayit` veya `/register` yazan yeni kullanıcı `telegramUsers` tablosuna kaydedilir ve bir kez 30 günlük `ultra_trial` planı alır. Bot, kullanıcıya denemenin başladığını DM ile bildirir.
 
 Webhook endpoint'i:
 

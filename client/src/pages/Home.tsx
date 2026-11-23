@@ -8,6 +8,7 @@ import {
   Check,
   ChevronRight,
   CircleHelp,
+  Clapperboard,
   Crown,
   Download,
   Gift,
@@ -15,6 +16,7 @@ import {
   Inbox,
   LayoutDashboard,
   ListVideo,
+  Mail,
   MessageCircle,
   MoreHorizontal,
   Plus,
@@ -25,6 +27,9 @@ import {
   ShieldCheck,
   Sparkles,
   Ticket,
+  Trophy,
+  Newspaper,
+  Gamepad2,
   Upload,
   Users,
   X,
@@ -33,7 +38,7 @@ import {
 import { toast } from "sonner";
 
 type Lang = "tr" | "en";
-type Section = "overview" | "iptv" | "giveaways" | "messages" | "plans" | "admin";
+type Section = "overview" | "iptv" | "giveaways" | "messages" | "plans" | "admin" | "steam" | "mail" | "film" | "spor" | "haber";
 
 const copy = {
   tr: {
@@ -147,6 +152,12 @@ export default function Home() {
           <NavItem icon={<ListVideo size={18} />} label={t.iptv} active={section === "iptv"} onClick={() => go("iptv")} count="3" />
           <NavItem icon={<Ticket size={18} />} label={t.giveaways} active={section === "giveaways"} onClick={() => go("giveaways")} count="1" />
           <NavItem icon={<MessageCircle size={18} />} label={t.messages} active={section === "messages"} onClick={() => go("messages")} count="2" />
+          <div className="pro-nav-label">PRO SEKME</div>
+          <NavItem icon={<Gamepad2 size={18} />} label="Steam" active={section === "steam"} onClick={() => go("steam")} />
+          <NavItem icon={<Mail size={18} />} label="Mail" active={section === "mail"} onClick={() => go("mail")} />
+          <NavItem icon={<Clapperboard size={18} />} label="Film" active={section === "film"} onClick={() => go("film")} />
+          <NavItem icon={<Trophy size={18} />} label="Spor" active={section === "spor"} onClick={() => go("spor")} />
+          <NavItem icon={<Newspaper size={18} />} label="Haber" active={section === "haber"} onClick={() => go("haber")} />
         </nav>
         <div className="side-label lower">HESABIM</div>
         <nav className="nav-stack">
@@ -172,7 +183,7 @@ export default function Home() {
         </header>
 
         <div className="content-wrap">
-          {adminMode ? <AdminPanel lang={lang} notify={notify} /> : section === "plans" ? <Plans lang={lang} onUpgrade={() => notify(lang === "tr" ? "Plan yükseltme talebi oluşturuldu." : "Upgrade request created.")} /> : section === "messages" ? <Messages lang={lang} /> : (
+          {adminMode ? <AdminPanel lang={lang} notify={notify} /> : section === "plans" ? <Plans lang={lang} onUpgrade={() => notify(lang === "tr" ? "Plan yükseltme talebi oluşturuldu." : "Upgrade request created.")} /> : section === "messages" ? <Messages lang={lang} /> : ["steam", "mail", "film", "spor", "haber"].includes(section) ? <ProSection lang={lang} category={section as "steam" | "mail" | "film" | "spor" | "haber"} /> : (
             <>
               <section className="hero-row">
                 <div><div className="eyebrow"><span className="live-dot" /> {t.live} / 23 NOV 2026</div><h1>{t.welcome}</h1><p>{t.subtitle}</p></div>
@@ -207,6 +218,8 @@ function Metric({ icon, label, value, delta }: { icon: React.ReactNode; label: s
 function StreamRow({ item, index, onClick }: { item: typeof listData[number]; index: number; onClick: () => void }) { return <button className="stream-row" onClick={onClick}><div className={`stream-logo ${item.color}`}>{index === 0 ? <Radio size={19} /> : index === 1 ? <Sparkles size={19} /> : <BarChart3 size={19} />}</div><div className="stream-info"><strong>{item.name}</strong><span>{item.meta}</span></div><Badge tone={item.status === "Canlı" ? "success" : "warning"}><span className={item.status === "Canlı" ? "tiny-live" : "tiny-wait"} />{item.status}</Badge><time>{item.time}</time><ChevronRight size={16} /></button>; }
 
 function AddModal({ lang, mode, setMode, onClose, onSave }: { lang: Lang; mode: "m3u" | "credentials"; setMode: (m: "m3u" | "credentials") => void; onClose: () => void; onSave: () => void }) { const t = copy[lang]; const [m3uText, setM3uText] = useState(""); const detectedChannels = (m3uText.match(/#EXTINF/gi) || []).length; return <div className="modal-backdrop" onClick={onClose}><div className="modal-card" onClick={e => e.stopPropagation()}><div className="modal-head"><div><span className="panel-kicker">YENİ BAĞLANTI</span><h2>{t.addTitle}</h2></div><button className="close-button" onClick={onClose}><X size={18} /></button></div><div className="mode-tabs"><button className={mode === "m3u" ? "selected" : ""} onClick={() => setMode("m3u")}><Upload size={16} /> {t.m3u}</button><button className={mode === "credentials" ? "selected" : ""} onClick={() => setMode("credentials")}><ShieldCheck size={16} /> {t.credentials}</button></div>{mode === "m3u" ? <><label className="field"><span>{t.paste}</span><textarea value={m3uText} onChange={e => setM3uText(e.target.value)} placeholder="https://ornek.com/playlist.m3u veya #EXTM3U" rows={4} /></label>{detectedChannels > 0 && <div className="detected-line"><Check size={14} /> {detectedChannels} kanal algılandı · liste hazır</div>}</> : <div className="field-grid"><label className="field"><span>{t.username}</span><input placeholder="selbaba" /></label><label className="field"><span>{t.password}</span><input type="password" placeholder="••••••••" /></label><label className="field full"><span>{t.link}</span><input placeholder="https://provider.example/xtream" /></label></div>}<div className="modal-footer"><span><ShieldCheck size={14} /> Bilgilerin şifreli saklanır.</span><div><button className="ghost-button" onClick={onClose}>{t.cancel}</button><button className="primary-button" onClick={onSave}><Check size={16} /> {t.save}</button></div></div></div></div>; }
+
+function ProSection({ lang, category }: { lang: Lang; category: "steam" | "mail" | "film" | "spor" | "haber" }) { const labels = { steam: ["Steam fırsatları", "Oyun, DLC ve hediye kartı duyuruları"], mail: ["Mail merkezi", "Pro kullanıcılar için özel gelen kutusu"], film: ["Film arşivi", "Yeni yayınlar ve seçili öneriler"], spor: ["Spor akışı", "Maç, skor ve canlı yayın bildirimleri"], haber: ["Haber akışı", "Topluluktan seçili gündem notları"] } as const; const [title, subtitle] = labels[category]; return <div className="inner-page"><div className="page-title"><div><span className="eyebrow"><Sparkles size={14} /> PRO / {category.toUpperCase()}</span><h1>{title}</h1><p>{subtitle}</p></div><Badge tone="success">{lang === "tr" ? "Pro sekmesi" : "Pro tab"}</Badge></div><div className="pro-feature-banner"><div><span className="panel-kicker lime-text">PRO TOPLULUK AKIŞI</span><h2>{lang === "tr" ? "Özel içerik burada düşer." : "Exclusive content lands here."}</h2><p>{lang === "tr" ? "Telegram kanalındaki ilgili etiketli mesajlar bu sekmede otomatik görünür." : "Tagged Telegram channel posts will appear here automatically."}</p></div><div className="pro-badge"><Crown size={25} /> PRO</div></div><div className="content-placeholder-grid"><div className="content-placeholder"><div className="placeholder-icon"><Radio size={18} /></div><div><strong>{lang === "tr" ? "Henüz yeni içerik yok" : "No new content yet"}</strong><span>{lang === "tr" ? `@${category} etiketiyle gelen ilk mesaj burada görünecek.` : `The first @${category} post will appear here.`}</span></div></div><div className="content-placeholder muted-placeholder"><CircleHelp size={19} /><span>{lang === "tr" ? "Bu sekme Pro üyelikle kullanılabilir." : "This tab is available with Pro membership."}</span></div></div></div>; }
 
 function Plans({ lang, onUpgrade }: { lang: Lang; onUpgrade: () => void }) { const t = copy[lang]; return <div className="inner-page"><div className="page-title"><div><span className="eyebrow">HESABIN / PLANLAR</span><h1>Yayın deneyimini büyüt.</h1><p>İhtiyacına göre seç, istediğin zaman değiştir.</p></div><Badge tone="success">Ultra aktif</Badge></div><div className="plans-grid">{plans.map(plan => <div className={`plan-card ${plan.color}`} key={plan.name}>{plan.name === "Ultra" && <div className="popular">EN POPÜLER</div>}<div className="plan-top"><span className="plan-name">{plan.name}</span>{plan.name === "Ultra" ? <Crown size={18} /> : <Zap size={18} />}</div><div className="plan-price"><strong>{plan.price}</strong><span>{plan.unit}</span></div><p>{plan.note}</p><div className="plan-features">{plan.features.map(f => <span key={f}><Check size={14} /> {f}</span>)}</div><button className={plan.name === "Ultra" ? "wide-button" : "outline-lime"} onClick={onUpgrade}>{plan.name === "Ultra" ? t.planCurrent : t.upgrade}</button></div>)}</div></div>; }
 

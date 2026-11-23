@@ -31,9 +31,25 @@ export const telegramIptvImports = mysqlTable("telegramIptvImports", {
   channelUsername: varchar("channelUsername", { length: 128 }).notNull(),
   channelTitle: varchar("channelTitle", { length: 255 }),
   telegramMessageId: int("telegramMessageId"),
+  category: mysqlEnum("category", ["iptv", "steam", "mail", "film", "spor", "haber"]).default("iptv").notNull(),
+  requiredPlan: mysqlEnum("requiredPlan", ["free", "pro", "ultra"]).default("free").notNull(),
   rawMessage: text("rawMessage").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export type TelegramIptvImport = typeof telegramIptvImports.$inferSelect;
 export type InsertTelegramIptvImport = typeof telegramIptvImports.$inferInsert;
+
+export const telegramUsers = mysqlTable("telegramUsers", {
+  id: int("id").autoincrement().primaryKey(),
+  telegramUserId: varchar("telegramUserId", { length: 64 }).notNull().unique(),
+  username: varchar("username", { length: 128 }),
+  firstName: varchar("firstName", { length: 128 }),
+  plan: mysqlEnum("plan", ["free", "pro", "ultra_trial"]).default("free").notNull(),
+  trialExpiresAt: timestamp("trialExpiresAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TelegramUser = typeof telegramUsers.$inferSelect;
+export type InsertTelegramUser = typeof telegramUsers.$inferInsert;
