@@ -1,3 +1,5 @@
+import mysql from "mysql2/promise";
+
 const categories = new Set(["iptv", "steam", "mail", "film", "spor", "haber"]);
 
 export default async function handler(req: any, res: any) {
@@ -13,24 +15,22 @@ export default async function handler(req: any, res: any) {
     return res.status(403).json({ ok: false, error: "Pro plan required" });
   }
 
+  if (!process.env.DATABASE_URL) {
+    return res.status(503).json({ ok: false, error: "Database is not configured" });
+  }
+
+  let connection: mysql.Connection | undefined;
   try {
-    // Lazy imports keep Vercel's function loader from failing before the
-    // handler can return a useful health/error response.
-    const [{ desc, eq }, { getDb }, { telegramIptvImports }] = await Promise.all([
-      import("drizzle-orm"),
-      import("../../server/db"),
-      import("../../drizzle/schema"),
-    ]);
-    const db = await getDb();
-    if (!db) return res.status(503).json({ ok: false, error: "Database is not available" });
-    const rows = await db.select().from(telegramIptvImports)
-      .where(eq(telegramIptvImports.category, category as any))
-      .orderBy(desc(telegramIptvImports.createdAt))
-      .limit(50);
+    connection = await mysql.createConnection(process.env.DATABASE_URL);
+    const [rows] = await connection.execute(
+      "SELECT id, sourceKey, channelUsername, channelTitle, telegramMessageId, category, requiredPlan, rawMessage, createdAt FROM telegramIptvImports WHERE category = ? ORDER BY createdAt DESC LIMIT 50",
+      [category],
+    );
     return res.status(200).json({ ok: true, category, items: rows });
   } catch (error) {
-    console.error("[content] handler failed", { category, error });
-    const detail = error instanceof Error ? error.message.replace(/mysql:\/\/[^\s]+/gi, "mysql://***") : "unknown";
-    return res.status(503).json({ ok: false, error: "Content storage is temporarily unavailable", detail: detail.slice(0, 180) });
+    console.error("[content] mysql query failed", { category, error });
+    return res.status(503).json({ ok: false, error: "Content storage is temporarily unavailable" });
+  } finally {
+    await connection?.end().catch(() => undefined);
   }
 }
