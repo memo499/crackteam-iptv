@@ -5,6 +5,7 @@ export default async function handler(req: any, res: any) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "content-type");
   if (req.method === "OPTIONS") return res.status(204).end();
+  if (req.method === "GET") return res.status(200).json({ ok: true, endpoint: "login", message: "Bu API POST isteği içindir. Giriş yapmak için CRACKTEAM İPTV uygulamasındaki giriş ekranını kullanın." });
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
   const clean = String(req.body?.username ?? "").trim().toLowerCase();
   const db = await mysql.createConnection(process.env.DATABASE_URL!);
