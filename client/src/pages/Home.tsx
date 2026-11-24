@@ -115,6 +115,7 @@ const copy = {
 } as const;
 
 type ContentItem = { id?: number; title?: string | null; content?: string | null; category?: string; createdAt?: string | Date | null };
+type IptvAccount = { username: string; plan: string };
 
 const plans = [
   { name: "Free", price: "0", unit: "TL / $0", note: "Reklamlı deneyim", color: "slate", features: ["M3U listesi ekle", "Temel yayın takibi", "Topluluk duyuruları"] },
@@ -136,11 +137,17 @@ export default function Home() {
   const [adminMode, setAdminMode] = useState(false);
   const [query, setQuery] = useState("");
   const [iptvItems, setIptvItems] = useState<ContentItem[]>([]);
+  const [iptvAccount, setIptvAccount] = useState<IptvAccount | null>(null);
   const t = copy[lang];
   const filteredLists = useMemo(() => iptvItems.filter(item => `${item.title ?? ""} ${item.content ?? ""}`.toLowerCase().includes(query.toLowerCase())), [iptvItems, query]);
   const isAdmin = user?.role === "admin";
 
   useEffect(() => {
+    const sessionToken = localStorage.getItem("ct_iptv_session");
+    fetch("/api/auth/me", { headers: sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined })
+      .then(response => response.ok ? response.json() : null)
+      .then(payload => setIptvAccount(payload?.user ?? null))
+      .catch(() => setIptvAccount(null));
     fetch("/api/content/iptv")
       .then(response => response.ok ? response.json() : null)
       .then(payload => setIptvItems(Array.isArray(payload?.items) ? payload.items : []))
@@ -181,7 +188,7 @@ export default function Home() {
         </nav>
         <div className="sidebar-bottom">
           <div className="bot-card"><Bot size={17} /><div><strong>ct bot</strong><span>durum doğrulanıyor</span></div><span className="pulse-dot" /></div>
-          <button className="profile-row" onClick={() => setAuthModal("login")}><div className="avatar">{user?.name?.[0] ?? "?"}</div><div><strong>{user?.name ?? (isAuthenticated ? "Hesap" : "Giriş yapılmadı")}</strong><span>{user?.role ?? "Giriş / kayıt"}</span></div><MoreHorizontal size={16} /></button>
+          <button className="profile-row" onClick={() => setAuthModal("login")}><div className="avatar">{(iptvAccount?.username ?? user?.name ?? "?")[0].toUpperCase()}</div><div><strong>{iptvAccount?.username ?? user?.name ?? (isAuthenticated ? "Hesap" : "Giriş yapılmadı")}</strong><span>{iptvAccount?.plan ?? user?.role ?? "Giriş / kayıt"}</span></div><MoreHorizontal size={16} /></button>
         </div>
       </aside>
 
