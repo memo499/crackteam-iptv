@@ -45,7 +45,7 @@ export const telegramUsers = mysqlTable("telegramUsers", {
   telegramUserId: varchar("telegramUserId", { length: 64 }).notNull().unique(),
   username: varchar("username", { length: 128 }),
   firstName: varchar("firstName", { length: 128 }),
-  plan: mysqlEnum("plan", ["free", "pro", "ultra_trial"]).default("free").notNull(),
+  plan: mysqlEnum("plan", ["free", "pro", "ultra", "ultra_trial"]).default("free").notNull(),
   trialExpiresAt: timestamp("trialExpiresAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -53,3 +53,18 @@ export const telegramUsers = mysqlTable("telegramUsers", {
 
 export type TelegramUser = typeof telegramUsers.$inferSelect;
 export type InsertTelegramUser = typeof telegramUsers.$inferInsert;
+
+export const subscriptionRequests = mysqlTable("subscriptionRequests", {
+  id: int("id").autoincrement().primaryKey(),
+  requestId: varchar("requestId", { length: 32 }).notNull().unique(),
+  telegramUserId: varchar("telegramUserId", { length: 64 }).notNull(),
+  telegramUsername: varchar("telegramUsername", { length: 128 }),
+  plan: mysqlEnum("plan", ["pro", "ultra"]).notNull(),
+  stars: int("stars").notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "rejected"]).default("pending").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  approvedAt: timestamp("approvedAt"),
+});
+
+export type SubscriptionRequest = typeof subscriptionRequests.$inferSelect;
+export type InsertSubscriptionRequest = typeof subscriptionRequests.$inferInsert;
