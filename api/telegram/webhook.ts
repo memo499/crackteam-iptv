@@ -106,6 +106,7 @@ async function handleAdminApproval(connection: mysql.Connection, message: any, t
   }
   await connection.execute("UPDATE subscriptionRequests SET status = 'approved', approvedAt = NOW() WHERE requestId = ?", [request.requestId]);
   await connection.execute("INSERT INTO telegramUsers (telegramUserId, username, plan) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE username = VALUES(username), plan = VALUES(plan), trialExpiresAt = NULL", [String(request.telegramUserId), request.telegramUsername ?? null, request.plan]);
+  await connection.execute("UPDATE iptvAccounts SET plan = ? WHERE username = ?", [request.plan, request.accountUsername]);
   await sendMessage(String(request.telegramUserId), `${String(request.plan).toUpperCase()} aboneliğin onaylandı. Hesabın aktif edildi.`);
   await sendMessage(String(message.chat?.id ?? ""), `${request.accountUsername} hesabının ${String(request.plan).toUpperCase()} aboneliği aktif edildi.`);
   return { ok: true, approved: request.requestId, plan: request.plan };
