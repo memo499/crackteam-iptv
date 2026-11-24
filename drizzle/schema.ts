@@ -59,6 +59,7 @@ export const subscriptionRequests = mysqlTable("subscriptionRequests", {
   requestId: varchar("requestId", { length: 32 }).notNull().unique(),
   telegramUserId: varchar("telegramUserId", { length: 64 }).notNull(),
   telegramUsername: varchar("telegramUsername", { length: 128 }),
+  accountUsername: varchar("accountUsername", { length: 128 }).notNull(),
   plan: mysqlEnum("plan", ["pro", "ultra"]).notNull(),
   stars: int("stars").notNull(),
   status: mysqlEnum("status", ["pending", "approved", "rejected"]).default("pending").notNull(),

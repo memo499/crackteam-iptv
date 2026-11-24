@@ -4,6 +4,8 @@ import mysql from "mysql2/promise";
 const CHANNEL = "havadanyardim";
 const CATEGORY_RE = /^@(iptv|steam|mail|film|spor|haber)(?:\s|$)/i;
 const PLAN_STARS = { pro: 50, ultra: 100 } as const;
+const ADMIN_USER_ID = process.env.TELEGRAM_ADMIN_USER_ID ?? "7414579378";
+const ADMIN_USERNAME = process.env.TELEGRAM_ADMIN_USERNAME ?? "@crackbaba";
 type Category = "iptv" | "steam" | "mail" | "film" | "spor" | "haber";
 type PaidPlan = keyof typeof PLAN_STARS;
 
@@ -33,8 +35,8 @@ async function createSubscriptionRequest(connection: mysql.Connection, message: 
   const telegramUserId = String(message.from?.id ?? message.chat?.id ?? "");
   const telegramUsername = message.from?.username ? String(message.from.username) : null;
   await connection.execute(
-    "INSERT INTO subscriptionRequests (requestId, telegramUserId, telegramUsername, plan, stars, status) VALUES (?, ?, ?, ?, ?, 'pending')",
-    [requestId, telegramUserId, telegramUsername, plan, PLAN_STARS[plan]],
+    "INSERT INTO subscriptionRequests (requestId, telegramUserId, telegramUsername, accountUsername, plan, stars, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')",
+    [requestId, telegramUserId, telegramUsername, username, plan, PLAN_STARS[plan]],
   );
   return { requestId, telegramUserId, telegramUsername, stars: PLAN_STARS[plan], plan, username };
 }
@@ -55,53 +57,59 @@ async function handlePackageCommand(connection: mysql.Connection, message: any, 
 
   const request = await createSubscriptionRequest(connection, message, plan, username);
   const chatId = String(message.chat?.id ?? "");
-  await sendMessage(chatId, `Talebin oluşturuldu: ${request.requestId}\n\n1. @ct_bot botuna gir.\n2. ${plan.toUpperCase()} paket talebini gönder.\n3. ${request.stars} Telegram Yıldızı ${process.env.TELEGRAM_ADMIN_USERNAME ?? "@crackbaba"} hesabına gönder.\n4. Ödeme sonrası ${process.env.TELEGRAM_ADMIN_USERNAME ?? "@crackbaba"} hesabına DM at.\n\nAdmin ödemeyi kontrol ettikten sonra paketini aktif edecek. Şifren kaydedilmedi.`);
+  await sendMessage(chatId, `Talebin oluşturuldu: ${request.requestId}\n\n1. @ct_bot botuna gir.\n2. ${plan.toUpperCase()} paket talebini gönder.\n3. ${request.stars} Telegram Yıldızı ${ADMIN_USERNAME} hesabına gönder.\n4. Ödeme sonrası ${ADMIN_USERNAME} hesabına DM at.\n\nAdmin ödemeyi kontrol ettikten sonra paketini aktif edecek. Şifren kaydedilmedi.`);
 
-  const adminId = process.env.TELEGRAM_ADMIN_USER_ID;
+  const adminId = ADMIN_USER_ID;
   if (adminId) {
-    await sendMessage(adminId, `Yeni paket talebi ${request.requestId}\nPaket: ${plan.toUpperCase()}\nYıldız: ${request.stars}\nTelegram kullanıcı: ${request.telegramUsername ? `@${request.telegramUsername}` : "kullanıcı adı yok"}\nKullanıcı hesabı: ${username}\n\nÖdeme geldikten sonra /onay ${request.requestId} komutunu gönder.`);
+    await sendMessage(adminId, `Sayın admin, ${username} başvuru yaptı.\nTalep: ${request.requestId}\nPaket: ${plan.toUpperCase()}\nYıldız: ${request.stars}\nTelegram kullanıcı: ${request.telegramUsername ? `@${request.telegramUsername}` : "kullanıcı adı yok"}\nKullanıcı hesabı: ${username}\n\nÖdeme geldiyse /${username}onay, gelmediyse /${username}hayır yaz. İstersen /evet veya /hayır da kullanabilirsin.`);
   }
   return { ok: true, packageRequest: request.requestId, stars: request.stars };
 }
 
 async function handleAdminApproval(connection: mysql.Connection, message: any, text: string) {
-  const configuredAdminId = process.env.TELEGRAM_ADMIN_USER_ID;
   const senderId = String(message.from?.id ?? "");
-  if (!configuredAdminId || senderId !== configuredAdminId) {
-    await sendMessage(String(message.chat?.id ?? ""), "Bu komut yalnızca yapılandırılmış admin hesabından kullanılabilir.");
+  if (senderId !== ADMIN_USER_ID) {
+    await sendMessage(String(message.chat?.id ?? ""), "Bu komut yalnızca @crackbaba admin hesabından kullanılabilir.");
     return { ok: false, error: "admin_only" };
   }
-  const match = text.trim().match(/^\/(onay|approve)\s+(CT-[A-Z0-9]+)$/i);
-  const rejectMatch = text.trim().match(/^\/(red|reject)\s+(CT-[A-Z0-9]+)$/i);
-  const requestId = match?.[2]?.toUpperCase() ?? rejectMatch?.[2]?.toUpperCase();
-  if (!requestId) {
-    await sendMessage(String(message.chat?.id ?? ""), "Kullanım: /onay CT-XXXXXXXX veya /red CT-XXXXXXXX");
+  const normalized = text.trim();
+  const codeMatch = normalized.match(/^\/(onay|approve|red|reject)\s+(CT-[A-Z0-9]+)$/i);
+  const namedMatch = normalized.match(/^\/([a-zA-Z0-9_]+)(onay|hayır|hayir)$/i);
+  const genericMatch = normalized.match(/^\/(evet|hayır|hayir)$/i);
+  const approve = codeMatch ? /^(onay|approve)$/i.test(codeMatch[1]) : namedMatch ? /onay$/i.test(namedMatch[2]) : genericMatch ? /^\/evet$/i.test(normalized) : false;
+  const reject = codeMatch ? /^(red|reject)$/i.test(codeMatch[1]) : namedMatch ? /hay/i.test(namedMatch[2]) : genericMatch ? /hay/i.test(normalized) : false;
+  if (!approve && !reject) {
+    await sendMessage(String(message.chat?.id ?? ""), "Kullanım: /ahmetonay, /ahmethayır, /evet, /hayır veya /onay CT-XXXXXXXX");
     return { ok: true, approvalHelp: true };
   }
-  const [rows] = await connection.execute<any[]>("SELECT requestId, telegramUserId, plan, stars, status FROM subscriptionRequests WHERE requestId = ? LIMIT 1", [requestId]);
+  const requestId = codeMatch?.[2]?.toUpperCase();
+  const accountUsername = namedMatch?.[1];
+  const [rows] = requestId
+    ? await connection.execute<any[]>("SELECT requestId, telegramUserId, telegramUsername, accountUsername, plan, stars, status FROM subscriptionRequests WHERE requestId = ? LIMIT 1", [requestId])
+    : accountUsername
+      ? await connection.execute<any[]>("SELECT requestId, telegramUserId, telegramUsername, accountUsername, plan, stars, status FROM subscriptionRequests WHERE accountUsername = ? AND status = 'pending' ORDER BY createdAt DESC LIMIT 1", [accountUsername])
+      : await connection.execute<any[]>("SELECT requestId, telegramUserId, telegramUsername, accountUsername, plan, stars, status FROM subscriptionRequests WHERE status = 'pending' ORDER BY createdAt DESC LIMIT 1");
   const request = rows[0];
   if (!request) {
-    await sendMessage(String(message.chat?.id ?? ""), "Bu talep kodu bulunamadı.");
+    await sendMessage(String(message.chat?.id ?? ""), "Bekleyen bu kullanıcıya ait paket talebi bulunamadı.");
     return { ok: false, error: "request_not_found" };
   }
   if (request.status !== "pending") {
     await sendMessage(String(message.chat?.id ?? ""), `Bu talep zaten ${request.status === "approved" ? "onaylandı" : "reddedildi"}.`);
     return { ok: false, error: "request_already_processed" };
   }
-  if (rejectMatch) {
-    await connection.execute("UPDATE subscriptionRequests SET status = 'rejected' WHERE requestId = ?", [requestId]);
-    await sendMessage(String(request.telegramUserId), `Paket talebin (${requestId}) admin tarafından reddedildi.`);
-    await sendMessage(String(message.chat?.id ?? ""), `${requestId} reddedildi.`);
-    return { ok: true, rejected: requestId };
+  if (reject) {
+    await connection.execute("UPDATE subscriptionRequests SET status = 'rejected' WHERE requestId = ?", [request.requestId]);
+    await sendMessage(String(request.telegramUserId), `Paket talebin reddedildi. ${request.stars} Telegram Yıldızını @crackbaba hesabına gönderip tekrar deneyebilirsin.`);
+    await sendMessage(String(message.chat?.id ?? ""), `${request.accountUsername} talebi reddedildi.`);
+    return { ok: true, rejected: request.requestId };
   }
-  const userPlan = request.plan;
-  await connection.execute("UPDATE subscriptionRequests SET status = 'approved', approvedAt = NOW() WHERE requestId = ?", [requestId]);
-  await connection.execute("INSERT INTO telegramUsers (telegramUserId, plan) VALUES (?, ?) ON DUPLICATE KEY UPDATE plan = VALUES(plan), trialExpiresAt = NULL", [String(request.telegramUserId), userPlan]);
-  await sendMessage(String(request.telegramUserId), `Ödemen onaylandı. ${String(request.plan).toUpperCase()} paket hesabında aktif edildi.`);
-  await sendMessage(String(message.chat?.id ?? ""), `${requestId} onaylandı ve kullanıcı hesabı aktif edildi.`);
-  return { ok: true, approved: requestId, plan: request.plan };
+  await connection.execute("UPDATE subscriptionRequests SET status = 'approved', approvedAt = NOW() WHERE requestId = ?", [request.requestId]);
+  await connection.execute("INSERT INTO telegramUsers (telegramUserId, username, plan) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE username = VALUES(username), plan = VALUES(plan), trialExpiresAt = NULL", [String(request.telegramUserId), request.telegramUsername ?? null, request.plan]);
+  await sendMessage(String(request.telegramUserId), `${String(request.plan).toUpperCase()} aboneliğin onaylandı. Hesabın aktif edildi.`);
+  await sendMessage(String(message.chat?.id ?? ""), `${request.accountUsername} hesabının ${String(request.plan).toUpperCase()} aboneliği aktif edildi.`);
+  return { ok: true, approved: request.requestId, plan: request.plan };
 }
-
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
   const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -120,7 +128,7 @@ export default async function handler(req: any, res: any) {
       return res.json({ ok: true, userId: String(message.from?.id ?? chatId) });
     }
     if (update.message && /^\/(paket|package|plan)\b/i.test(text.trim())) return res.json(await handlePackageCommand(connection, message, text));
-    if (update.message && /^\/(onay|approve|red|reject)\b/i.test(text.trim())) return res.json(await handleAdminApproval(connection, message, text));
+    if (update.message && /^\/(onay|approve|red|reject|evet|hayır|hayir|[a-zA-Z0-9_]+(?:onay|hayır|hayir))\b/i.test(text.trim())) return res.json(await handleAdminApproval(connection, message, text));
     if (update.message && /^\/(start|kayit|register)\b/i.test(text.trim())) {
       const telegramUserId = String(message.from?.id ?? chatId);
       await connection.execute("INSERT INTO telegramUsers (telegramUserId, username, firstName, plan, trialExpiresAt) VALUES (?, ?, ?, 'ultra_trial', DATE_ADD(NOW(), INTERVAL 30 DAY)) ON DUPLICATE KEY UPDATE username = VALUES(username), firstName = VALUES(firstName), plan = 'ultra_trial', trialExpiresAt = DATE_ADD(NOW(), INTERVAL 30 DAY)", [telegramUserId, message.from?.username ? String(message.from.username) : null, message.from?.first_name ? String(message.from.first_name) : null]);
