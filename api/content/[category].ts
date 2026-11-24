@@ -30,6 +30,7 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({ ok: true, category, items: rows });
   } catch (error) {
     console.error("[content] handler failed", { category, error });
-    return res.status(503).json({ ok: false, error: "Content storage is temporarily unavailable" });
+    const detail = error instanceof Error ? error.message.replace(/mysql:\/\/[^\s]+/gi, "mysql://***") : "unknown";
+    return res.status(503).json({ ok: false, error: "Content storage is temporarily unavailable", detail: detail.slice(0, 180) });
   }
 }
