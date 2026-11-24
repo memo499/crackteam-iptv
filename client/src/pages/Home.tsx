@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   ArrowUpRight,
@@ -36,6 +36,7 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 type Lang = "tr" | "en";
 type Section = "overview" | "iptv" | "giveaways" | "messages" | "plans" | "admin" | "steam" | "mail" | "film" | "spor" | "haber";
@@ -53,7 +54,7 @@ const copy = {
     search: "Ara",
     active: "aktif yayın",
     welcome: "Yayın akışını tek merkezde tut.",
-    subtitle: "CRACKTEAM topluluğuna hoş geldin, Selbaba.",
+    subtitle: "Telegram’dan gelen içerikleri ve kendi listelerini tek merkezde yönet.",
     live: "Sistem canlı",
     recent: "Son eklenenler",
     seeAll: "Tümünü gör",
@@ -88,7 +89,7 @@ const copy = {
     search: "Search",
     active: "active streams",
     welcome: "Keep your stream in one place.",
-    subtitle: "Welcome back to the CRACKTEAM community, Selbaba.",
+    subtitle: "Manage Telegram content and your own lists in one place.",
     live: "System live",
     recent: "Recently added",
     seeAll: "See all",
@@ -113,11 +114,7 @@ const copy = {
   },
 } as const;
 
-const listData = [
-  { name: "CRACKTEAM Sports HD", meta: "M3U • 1,248 kanal", status: "Canlı", color: "lime", time: "2 dk önce" },
-  { name: "Hava'dan Yardım VIP", meta: "Xtream • 4,822 kanal", status: "Canlı", color: "violet", time: "18 dk önce" },
-  { name: "Cinema Universe", meta: "M3U • 968 kanal", status: "Senkron bekliyor", color: "blue", time: "Dün" },
-];
+type ContentItem = { id?: number; title?: string | null; content?: string | null; category?: string; createdAt?: string | Date | null };
 
 const plans = [
   { name: "Free", price: "0", unit: "TL / $0", note: "Reklamlı deneyim", color: "slate", features: ["M3U listesi ekle", "Temel yayın takibi", "Topluluk duyuruları"] },
@@ -130,16 +127,32 @@ function Badge({ children, tone = "default" }: { children: React.ReactNode; tone
 }
 
 export default function Home() {
+  const { user, isAuthenticated } = useAuth();
   const [lang, setLang] = useState<Lang>("tr");
   const [section, setSection] = useState<Section>("overview");
   const [modal, setModal] = useState(false);
   const [addMode, setAddMode] = useState<"m3u" | "credentials">("m3u");
   const [adminMode, setAdminMode] = useState(false);
   const [query, setQuery] = useState("");
+  const [iptvItems, setIptvItems] = useState<ContentItem[]>([]);
   const t = copy[lang];
-  const filteredLists = useMemo(() => listData.filter(item => item.name.toLowerCase().includes(query.toLowerCase())), [query]);
+  const filteredLists = useMemo(() => iptvItems.filter(item => `${item.title ?? ""} ${item.content ?? ""}`.toLowerCase().includes(query.toLowerCase())), [iptvItems, query]);
+  const isAdmin = user?.role === "admin";
 
-  const go = (next: Section) => { setSection(next); setAdminMode(next === "admin"); };
+  useEffect(() => {
+    fetch("/api/content/iptv")
+      .then(response => response.ok ? response.json() : null)
+      .then(payload => setIptvItems(Array.isArray(payload?.items) ? payload.items : []))
+      .catch(() => setIptvItems([]));
+  }, []);
+
+  const go = (next: Section) => {
+    if (next === "admin" && !isAdmin) {
+      notify(lang === "tr" ? "Admin yetkisi olan hesapla giriş yapmalısın." : "Sign in with an admin account to open this area.");
+      return;
+    }
+    setSection(next); setAdminMode(next === "admin");
+  };
   const notify = (message: string) => toast.success(message, { description: lang === "tr" ? "CT Bot bildirim merkezine gönderildi." : "Sent to the CT Bot notification center." });
 
   return (
@@ -149,9 +162,9 @@ export default function Home() {
         <div className="side-label">{t.dashboard}</div>
         <nav className="nav-stack">
           <NavItem icon={<LayoutDashboard size={18} />} label={t.overview} active={section === "overview"} onClick={() => go("overview")} />
-          <NavItem icon={<ListVideo size={18} />} label={t.iptv} active={section === "iptv"} onClick={() => go("iptv")} count="3" />
-          <NavItem icon={<Ticket size={18} />} label={t.giveaways} active={section === "giveaways"} onClick={() => go("giveaways")} count="1" />
-          <NavItem icon={<MessageCircle size={18} />} label={t.messages} active={section === "messages"} onClick={() => go("messages")} count="2" />
+          <NavItem icon={<ListVideo size={18} />} label={t.iptv} active={section === "iptv"} onClick={() => go("iptv")} />
+          <NavItem icon={<Ticket size={18} />} label={t.giveaways} active={section === "giveaways"} onClick={() => go("giveaways")} />
+          <NavItem icon={<MessageCircle size={18} />} label={t.messages} active={section === "messages"} onClick={() => go("messages")} />
           <div className="pro-nav-label">PRO SEKME</div>
           <NavItem icon={<Gamepad2 size={18} />} label="Steam" active={section === "steam"} onClick={() => go("steam")} />
           <NavItem icon={<Mail size={18} />} label="Mail" active={section === "mail"} onClick={() => go("mail")} />
@@ -162,12 +175,12 @@ export default function Home() {
         <div className="side-label lower">HESABIM</div>
         <nav className="nav-stack">
           <NavItem icon={<Crown size={18} />} label={t.plans} active={section === "plans"} onClick={() => go("plans")} />
-          <NavItem icon={<ShieldCheck size={18} />} label={t.admin} active={section === "admin"} onClick={() => go("admin")} />
+          {isAdmin && <NavItem icon={<ShieldCheck size={18} />} label={t.admin} active={section === "admin"} onClick={() => go("admin")} />}
           <NavItem icon={<Settings2 size={18} />} label="Ayarlar" active={false} onClick={() => notify(lang === "tr" ? "Ayarlar yakında." : "Settings are coming soon.")} />
         </nav>
         <div className="sidebar-bottom">
-          <div className="bot-card"><Bot size={17} /><div><strong>ct bot</strong><span>online • 24/7</span></div><span className="pulse-dot" /></div>
-          <button className="profile-row"><div className="avatar">S</div><div><strong>Selbaba</strong><span>Ultra üye</span></div><MoreHorizontal size={16} /></button>
+          <div className="bot-card"><Bot size={17} /><div><strong>ct bot</strong><span>durum doğrulanıyor</span></div><span className="pulse-dot" /></div>
+          <button className="profile-row"><div className="avatar">{user?.name?.[0] ?? "?"}</div><div><strong>{user?.name ?? (isAuthenticated ? "Hesap" : "Giriş yapılmadı")}</strong><span>{user?.role ?? "plan doğrulanmadı"}</span></div><MoreHorizontal size={16} /></button>
         </div>
       </aside>
 
@@ -191,15 +204,15 @@ export default function Home() {
               </section>
 
               <section className="metric-strip">
-                <Metric icon={<Radio size={19} />} label="Toplam kanal" value="7,038" delta="+12.6%" />
-                <Metric icon={<Activity size={19} />} label="Aktif yayın" value="2,184" delta="+8.4%" />
-                <Metric icon={<Users size={19} />} label="Topluluk" value="12.8K" delta="+24.1%" />
-                <Metric icon={<Zap size={19} />} label="Uptime" value="99.98%" delta="optimal" />
+                <Metric icon={<Radio size={19} />} label="Telegram IPTV içeriği" value={String(iptvItems.length)} delta="gerçek veri" />
+                <Metric icon={<Activity size={19} />} label="Aktif yayın" value="—" delta="veri yok" />
+                <Metric icon={<Users size={19} />} label="Topluluk" value="—" delta="veri yok" />
+                <Metric icon={<Zap size={19} />} label="Uptime" value="—" delta="ölçülmüyor" />
               </section>
 
               <div className="dashboard-grid">
-                <section className="panel list-panel"><div className="panel-head"><div><span className="panel-kicker">YAYIN MERKEZİ</span><h2>{t.recent}</h2></div><button className="ghost-button" onClick={() => go("iptv")}>{t.seeAll} <ArrowUpRight size={15} /></button></div><div className="stream-list">{filteredLists.map((item, i) => <StreamRow key={item.name} item={item} index={i} onClick={() => notify(`${item.name} ${lang === "tr" ? "açıldı" : "opened"}.`)} />)}</div><div className="sync-line"><span><span className="tiny-live" /> Son senkronizasyon 2 dk önce</span><span>v2.4.1</span></div></section>
-                <section className="panel giveaway-panel"><div className="panel-head"><div><span className="panel-kicker lime-text">ULTRA SAHNE</span><h2>{t.giveawayTitle}</h2></div><Gift size={23} className="lime-icon" /></div><div className="giveaway-art"><div className="ticket-orbit"><Ticket size={28} /></div><span>03 <small>KAZANAN</small></span><div className="orbit-line" /></div><p>{t.giveawaySub}</p><div className="giveaway-meta"><span><Users size={15} /> 842 katılımcı</span><span><Activity size={15} /> 06:42:18</span></div><button className="wide-button" onClick={() => notify(t.join)}><Sparkles size={16} /> {t.join}</button></section>
+                <section className="panel list-panel"><div className="panel-head"><div><span className="panel-kicker">YAYIN MERKEZİ</span><h2>{t.recent}</h2></div><button className="ghost-button" onClick={() => go("iptv")}>{t.seeAll} <ArrowUpRight size={15} /></button></div><div className="stream-list">{filteredLists.length ? filteredLists.map((item, i) => <StreamRow key={item.id ?? i} item={item} index={i} onClick={() => undefined} />) : <div className="content-placeholder"><Radio size={18} /><span>Henüz Telegram IPTV içeriği yok.</span></div>}</div><div className="sync-line"><span>Telegram’dan gelen gerçek kayıtlar gösterilir</span><span>—</span></div></section>
+                <section className="panel giveaway-panel"><div className="panel-head"><div><span className="panel-kicker lime-text">ÇEKİLİŞLER</span><h2>Henüz çekiliş yok</h2></div><Gift size={23} className="lime-icon" /></div><p>Aktif bir çekiliş oluşturulduğunda burada görünür. Uydurma katılımcı ve sayaç gösterilmiyor.</p><button className="outline-lime" onClick={() => go("giveaways")}><Ticket size={16} /> Çekilişleri aç</button></section>
               </div>
 
               <section className="bottom-grid"><section className="panel ultra-panel"><div className="ultra-copy"><span className="panel-kicker lime-text"><Crown size={14} /> ULTRA'YA ÖZEL</span><h2>{t.ultra}</h2><p>{t.ultraSub}</p><button className="outline-lime" onClick={() => notify(t.open)}>{t.open} <ArrowUpRight size={15} /></button></div><div className="signal-graphic"><div className="signal-ring r1" /><div className="signal-ring r2" /><div className="signal-ring r3" /><Radio size={27} /></div></section><section className="panel bot-panel"><div className="bot-icon"><Bot size={22} /></div><div><span className="panel-kicker">CT BOT</span><h3>Her şey kontrol altında.</h3><p>Yeni link, çekiliş sonucu veya DM geldiğinde sana haber verir.</p></div><button className="circle-arrow" onClick={() => go("messages")}><ArrowUpRight size={17} /></button></section></section>
@@ -215,14 +228,13 @@ export default function Home() {
 
 function NavItem({ icon, label, active, onClick, count }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; count?: string }) { return <button className={`nav-item ${active ? "active" : ""}`} onClick={onClick}>{icon}<span>{label}</span>{count && <em>{count}</em>}</button>; }
 function Metric({ icon, label, value, delta }: { icon: React.ReactNode; label: string; value: string; delta: string }) { return <div className="metric"><div className="metric-icon">{icon}</div><div><span>{label}</span><strong>{value}</strong></div><small>{delta}</small></div>; }
-function StreamRow({ item, index, onClick }: { item: typeof listData[number]; index: number; onClick: () => void }) { return <button className="stream-row" onClick={onClick}><div className={`stream-logo ${item.color}`}>{index === 0 ? <Radio size={19} /> : index === 1 ? <Sparkles size={19} /> : <BarChart3 size={19} />}</div><div className="stream-info"><strong>{item.name}</strong><span>{item.meta}</span></div><Badge tone={item.status === "Canlı" ? "success" : "warning"}><span className={item.status === "Canlı" ? "tiny-live" : "tiny-wait"} />{item.status}</Badge><time>{item.time}</time><ChevronRight size={16} /></button>; }
+function StreamRow({ item, index, onClick }: { item: ContentItem; index: number; onClick: () => void }) { const title = item.title || `Telegram ${item.category ?? "IPTV"} içeriği`; const meta = item.content ? item.content.slice(0, 80) : "Telegram kaydı"; return <button className="stream-row" onClick={onClick}><div className={`stream-logo ${index % 2 ? "violet" : "lime"}`}><Radio size={19} /></div><div className="stream-info"><strong>{title}</strong><span>{meta}</span></div><Badge tone="success"><span className="tiny-live" />Alındı</Badge><time>{item.createdAt ? new Date(item.createdAt).toLocaleDateString("tr-TR") : "—"}</time><ChevronRight size={16} /></button>; }
 
 function AddModal({ lang, mode, setMode, onClose, onSave }: { lang: Lang; mode: "m3u" | "credentials"; setMode: (m: "m3u" | "credentials") => void; onClose: () => void; onSave: () => void }) { const t = copy[lang]; const [m3uText, setM3uText] = useState(""); const detectedChannels = (m3uText.match(/#EXTINF/gi) || []).length; return <div className="modal-backdrop" onClick={onClose}><div className="modal-card" onClick={e => e.stopPropagation()}><div className="modal-head"><div><span className="panel-kicker">YENİ BAĞLANTI</span><h2>{t.addTitle}</h2></div><button className="close-button" onClick={onClose}><X size={18} /></button></div><div className="mode-tabs"><button className={mode === "m3u" ? "selected" : ""} onClick={() => setMode("m3u")}><Upload size={16} /> {t.m3u}</button><button className={mode === "credentials" ? "selected" : ""} onClick={() => setMode("credentials")}><ShieldCheck size={16} /> {t.credentials}</button></div>{mode === "m3u" ? <><label className="field"><span>{t.paste}</span><textarea value={m3uText} onChange={e => setM3uText(e.target.value)} placeholder="https://ornek.com/playlist.m3u veya #EXTM3U" rows={4} /></label>{detectedChannels > 0 && <div className="detected-line"><Check size={14} /> {detectedChannels} kanal algılandı · liste hazır</div>}</> : <div className="field-grid"><label className="field"><span>{t.username}</span><input placeholder="selbaba" /></label><label className="field"><span>{t.password}</span><input type="password" placeholder="••••••••" /></label><label className="field full"><span>{t.link}</span><input placeholder="https://provider.example/xtream" /></label></div>}<div className="modal-footer"><span><ShieldCheck size={14} /> Bilgilerin şifreli saklanır.</span><div><button className="ghost-button" onClick={onClose}>{t.cancel}</button><button className="primary-button" onClick={onSave}><Check size={16} /> {t.save}</button></div></div></div></div>; }
 
-function ProSection({ lang, category }: { lang: Lang; category: "steam" | "mail" | "film" | "spor" | "haber" }) { const labels = { steam: ["Steam fırsatları", "Oyun, DLC ve hediye kartı duyuruları"], mail: ["Mail merkezi", "Pro kullanıcılar için özel gelen kutusu"], film: ["Film arşivi", "Yeni yayınlar ve seçili öneriler"], spor: ["Spor akışı", "Maç, skor ve canlı yayın bildirimleri"], haber: ["Haber akışı", "Topluluktan seçili gündem notları"] } as const; const [title, subtitle] = labels[category]; return <div className="inner-page"><div className="page-title"><div><span className="eyebrow"><Sparkles size={14} /> PRO / {category.toUpperCase()}</span><h1>{title}</h1><p>{subtitle}</p></div><Badge tone="success">{lang === "tr" ? "Pro sekmesi" : "Pro tab"}</Badge></div><div className="pro-feature-banner"><div><span className="panel-kicker lime-text">PRO TOPLULUK AKIŞI</span><h2>{lang === "tr" ? "Özel içerik burada düşer." : "Exclusive content lands here."}</h2><p>{lang === "tr" ? "Telegram kanalındaki ilgili etiketli mesajlar bu sekmede otomatik görünür." : "Tagged Telegram channel posts will appear here automatically."}</p></div><div className="pro-badge"><Crown size={25} /> PRO</div></div><div className="content-placeholder-grid"><div className="content-placeholder"><div className="placeholder-icon"><Radio size={18} /></div><div><strong>{lang === "tr" ? "Henüz yeni içerik yok" : "No new content yet"}</strong><span>{lang === "tr" ? `@${category} etiketiyle gelen ilk mesaj burada görünecek.` : `The first @${category} post will appear here.`}</span></div></div><div className="content-placeholder muted-placeholder"><CircleHelp size={19} /><span>{lang === "tr" ? "Bu sekme Pro üyelikle kullanılabilir." : "This tab is available with Pro membership."}</span></div></div></div>; }
+function ProSection({ lang, category }: { lang: Lang; category: "steam" | "mail" | "film" | "spor" | "haber" }) { const labels = { steam: ["Steam fırsatları", "Oyun, DLC ve hediye kartı duyuruları"], mail: ["Mail merkezi", "Pro kullanıcılar için özel gelen kutusu"], film: ["Film arşivi", "Yeni yayınlar ve seçili öneriler"], spor: ["Spor akışı", "Maç, skor ve canlı yayın bildirimleri"], haber: ["Haber akışı", "Topluluktan seçili gündem notları"] } as const; const [title, subtitle] = labels[category]; const [items, setItems] = useState<ContentItem[]>([]); useEffect(() => { fetch(`/api/content/${category}?plan=pro`).then(r => r.ok ? r.json() : null).then(data => setItems(Array.isArray(data?.items) ? data.items : [])).catch(() => setItems([])); }, [category]); return <div className="inner-page"><div className="page-title"><div><span className="eyebrow"><Sparkles size={14} /> PRO / {category.toUpperCase()}</span><h1>{title}</h1><p>{subtitle}</p></div><Badge tone="default">{lang === "tr" ? "Gerçek Telegram akışı" : "Live Telegram feed"}</Badge></div><div className="pro-feature-banner"><div><span className="panel-kicker lime-text">PRO TOPLULUK AKIŞI</span><h2>{lang === "tr" ? "Etiketli içerikler burada görünür." : "Tagged content appears here."}</h2><p>{lang === "tr" ? "Kanalda ilgili etiketle yayınlanan mesajlar otomatik olarak listelenir." : "Channel posts with the matching tag are listed automatically."}</p></div><div className="pro-badge"><Crown size={25} /> PRO</div></div><div className="content-placeholder-grid">{items.length ? items.map((item, index) => <div className="content-placeholder" key={item.id ?? index}><div className="placeholder-icon"><Radio size={18} /></div><div><strong>{item.title || `@${category} Telegram içeriği`}</strong><span>{item.content || "İçerik metni yok"}</span></div></div>) : <div className="content-placeholder"><div className="placeholder-icon"><Radio size={18} /></div><div><strong>{lang === "tr" ? "Henüz yeni içerik yok" : "No new content yet"}</strong><span>{lang === "tr" ? `@${category} etiketiyle gelen ilk mesaj burada görünecek.` : `The first @${category} post will appear here.`}</span></div></div>}</div></div>; }
 
-function Plans({ lang, onUpgrade }: { lang: Lang; onUpgrade: () => void }) { const t = copy[lang]; return <div className="inner-page"><div className="page-title"><div><span className="eyebrow">HESABIN / PLANLAR</span><h1>Yayın deneyimini büyüt.</h1><p>İhtiyacına göre seç, istediğin zaman değiştir.</p></div><Badge tone="success">Ultra aktif</Badge></div><div className="plans-grid">{plans.map(plan => <div className={`plan-card ${plan.color}`} key={plan.name}>{plan.name === "Ultra" && <div className="popular">EN POPÜLER</div>}<div className="plan-top"><span className="plan-name">{plan.name}</span>{plan.name === "Ultra" ? <Crown size={18} /> : <Zap size={18} />}</div><div className="plan-price"><strong>{plan.price}</strong><span>{plan.unit}</span></div><p>{plan.note}</p><div className="plan-features">{plan.features.map(f => <span key={f}><Check size={14} /> {f}</span>)}</div><button className={plan.name === "Ultra" ? "wide-button" : "outline-lime"} onClick={onUpgrade}>{plan.name === "Ultra" ? t.planCurrent : t.upgrade}</button></div>)}</div></div>; }
+function Plans({ lang, onUpgrade }: { lang: Lang; onUpgrade: () => void }) { const t = copy[lang]; return <div className="inner-page"><div className="page-title"><div><span className="eyebrow">HESABIN / PLANLAR</span><h1>Yayın deneyimini büyüt.</h1><p>İhtiyacına göre seç, istediğin zaman değiştir.</p></div><Badge tone="default">Plan doğrulanıyor</Badge></div><div className="plans-grid">{plans.map(plan => <div className={`plan-card ${plan.color}`} key={plan.name}>{plan.name === "Ultra" && <div className="popular">EN POPÜLER</div>}<div className="plan-top"><span className="plan-name">{plan.name}</span>{plan.name === "Ultra" ? <Crown size={18} /> : <Zap size={18} />}</div><div className="plan-price"><strong>{plan.price}</strong><span>{plan.unit}</span></div><p>{plan.note}</p><div className="plan-features">{plan.features.map(f => <span key={f}><Check size={14} /> {f}</span>)}</div><button className={plan.name === "Ultra" ? "wide-button" : "outline-lime"} onClick={onUpgrade}>{plan.name === "Ultra" ? t.planCurrent : t.upgrade}</button></div>)}</div></div>; }
 
-function Messages({ lang }: { lang: Lang }) { const t = copy[lang]; return <div className="inner-page"><div className="page-title"><div><span className="eyebrow">TOPLULUK / DM</span><h1>{t.messagesTitle}</h1><p>ct bot ve admin mesajlarını tek akışta gör.</p></div><button className="primary-button"><Send size={16} /> Yeni mesaj</button></div><div className="message-layout"><div className="conversation-list"><div className="conversation active"><div className="bot-icon"><Bot size={18} /></div><div><strong>ct bot</strong><span>Çekiliş sonucu hazırlandı.</span></div><time>2 dk</time></div><div className="conversation"><div className="avatar small">A</div><div><strong>Admin</strong><span>Ultra IPTV linkin gönderildi.</span></div><time>1 sa</time></div><div className="conversation"><div className="avatar small">C</div><div><strong>CRACKTEAM destek</strong><span>Hoş geldin Selbaba.</span></div><time>Dün</time></div></div><div className="chat-window"><div className="chat-head"><div className="bot-icon"><Bot size={18} /></div><div><strong>ct bot</strong><span><span className="tiny-live" /> online</span></div></div><div className="chat-body"><div className="bubble bot">Bugünkü çekiliş tamamlandı. Sonuçları admin paneline ilettim.</div><div className="bubble user">Teşekkürler, Ultra linkleri de bekliyorum.</div><div className="bubble bot">Tamamdır. Yeni ücretsiz IPTV paylaşımı geldiğinde burada göreceksin.</div></div><div className="chat-input"><input placeholder="Mesajını yaz..." /><button><Send size={16} /></button></div></div></div></div>; }
-
-function AdminPanel({ lang, notify }: { lang: Lang; notify: (message: string) => void }) { return <div className="inner-page"><div className="page-title"><div><span className="eyebrow"><ShieldCheck size={14} /> ADMIN / CT BOT</span><h1>Yönetim paneli</h1><p>Çekiliş, ücretsiz IPTV ve topluluk akışını buradan yönet.</p></div><Badge tone="success">Admin yetkisi aktif</Badge></div><div className="admin-grid"><div className="admin-card"><div className="admin-card-head"><Ticket size={19} /><strong>Yeni çekiliş başlat</strong></div><label className="field"><span>Çekiliş adı</span><input placeholder="Haftanın Ultra sürprizi" /></label><div className="field-grid"><label className="field"><span>Kazanan sayısı</span><input value="3" readOnly /></label><label className="field"><span>Süre</span><input value="24 saat" readOnly /></label></div><button className="wide-button" onClick={() => notify("Çekiliş yayınlandı.")}><Sparkles size={16} /> Çekilişi yayınla</button></div><div className="admin-card"><div className="admin-card-head"><Radio size={19} /><strong>Ücretsiz IPTV paylaş</strong></div><label className="field"><span>Ultra duyuru başlığı</span><input placeholder="Bugünün linki" /></label><label className="field"><span>M3U / Xtream bağlantısı</span><textarea rows={3} placeholder="Linki buraya yapıştır..." /></label><button className="outline-lime wide" onClick={() => notify("Ultra ücretsiz IPTV paylaşımı yayınlandı.")}><Send size={16} /> Ultra'ya gönder</button></div><div className="admin-card wide-card"><div className="admin-card-head"><Bot size={19} /><strong>Telegram / CT Bot akışı</strong><Badge tone="success">Hazır</Badge></div><div className="rule-row"><span><span className="tiny-live" /> Kanal dinleme kuralı</span><code>@iptv</code><span className="muted">havadanyardim</span><button className="circle-arrow" onClick={() => notify("Telegram kuralı düzenleme ekranı açıldı.")}><Settings2 size={15} /></button></div><div className="rule-row"><span><Check size={15} className="lime-text" /> Son çekiliş sonucu</span><span className="muted">3 kazanan admin DM'ine gönderildi</span><button className="circle-arrow" onClick={() => notify("Sonuç raporu ct bot üzerinden gönderildi.")}><Send size={15} /></button></div></div></div></div>; }
+function Messages({ lang }: { lang: Lang }) { const t = copy[lang]; return <div className="inner-page"><div className="page-title"><div><span className="eyebrow">TOPLULUK / DM</span><h1>{t.messagesTitle}</h1><p>Gerçek bot ve admin mesajları geldiğinde burada gösterilir.</p></div></div><div className="content-placeholder-grid"><div className="content-placeholder"><MessageCircle size={19} /><div><strong>{lang === "tr" ? "Henüz mesaj yok" : "No messages yet"}</strong><span>{lang === "tr" ? "Sahte konuşma gösterilmiyor." : "Demo conversations are not shown."}</span></div></div></div></div>; }
+function AdminPanel({ lang }: { lang: Lang; notify: (message: string) => void }) { return <div className="inner-page"><div className="page-title"><div><span className="eyebrow"><ShieldCheck size={14} /> ADMIN / CT BOT</span><h1>{lang === "tr" ? "Yönetim paneli" : "Admin panel"}</h1><p>{lang === "tr" ? "Bu alan yalnızca sunucu tarafından admin rolü doğrulanan hesaplarda açılır." : "This area is available only to accounts whose admin role is verified by the server."}</p></div><Badge tone="default">Sunucu doğrulaması gerekli</Badge></div><div className="content-placeholder-grid"><div className="content-placeholder"><ShieldCheck size={19} /><div><strong>{lang === "tr" ? "Henüz yönetim verisi yok" : "No admin data yet"}</strong><span>{lang === "tr" ? "Çekiliş, ücretsiz IPTV ve Telegram yönetim kayıtları gerçek backend bağlandığında burada görünecek." : "Giveaway, free IPTV and Telegram management records will appear here when the real backend is connected."}</span></div></div></div></div>; }

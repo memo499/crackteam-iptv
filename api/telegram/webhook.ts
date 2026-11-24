@@ -34,7 +34,13 @@ export default async function handler(req: any, res: any) {
   if (!message) return res.json({ ok: true, ignored: "not_supported" });
   const text = String(message.text ?? message.caption ?? "");
   const chatId = String(message.chat?.id ?? "");
-  const db = await getDb();
+  let db;
+  try {
+    db = await getDb();
+  } catch (error) {
+    console.error("[telegram] database connection failed", error);
+    return res.status(503).json({ ok: false, error: "Database is temporarily unavailable" });
+  }
   if (!db) return res.status(503).json({ ok: false, error: "Database is not available" });
 
   if (update.message && /^\/(start|kayit|register)\b/i.test(text.trim())) {
@@ -60,15 +66,20 @@ export default async function handler(req: any, res: any) {
   if (!rule) return res.json({ ok: true, ignored: "missing_supported_tag" });
 
   const sourceKey = crypto.createHash("sha256").update(`${chatId}:${message.message_id ?? text}`).digest("hex");
-  await db.insert(telegramIptvImports).values({
-    sourceKey,
-    channelUsername,
-    channelTitle: message.chat?.title ? String(message.chat.title) : null,
-    telegramMessageId: Number.isInteger(Number(message.message_id)) ? Number(message.message_id) : null,
-    category: rule.category,
-    requiredPlan: rule.requiredPlan,
-    rawMessage: text,
-  }).onDuplicateKeyUpdate({ set: { rawMessage: text } });
+  try {
+    await db.insert(telegramIptvImports).values({
+      sourceKey,
+      channelUsername,
+      channelTitle: message.chat?.title ? String(message.chat.title) : null,
+      telegramMessageId: Number.isInteger(Number(message.message_id)) ? Number(message.message_id) : null,
+      category: rule.category,
+      requiredPlan: rule.requiredPlan,
+      rawMessage: text,
+    }).onDuplicateKeyUpdate({ set: { rawMessage: text } });
+  } catch (error) {
+    console.error("[telegram] import insert failed", { category: rule.category, error });
+    return res.status(503).json({ ok: false, error: "Content storage is temporarily unavailable" });
+  }
 
   return res.json({ ok: true, imported: true, category: rule.category, sourceKey });
 }
