@@ -251,6 +251,7 @@ export default function Home() {
                 <Metric icon={<Users size={19} />} label="Topluluk" value="—" delta="veri yok" />
                 <Metric icon={<Zap size={19} />} label="Uptime" value="—" delta="ölçülmüyor" />
               </section>
+              <PlanSpotlight plan={currentPlan} onPlans={() => go("plans")} onPro={() => go("steam")} />
 
               <div className="dashboard-grid">
                 <section className="panel list-panel"><div className="panel-head"><div><span className="panel-kicker">YAYIN MERKEZİ</span><h2>{t.recent}</h2></div><button className="ghost-button" onClick={() => go("iptv")}>{t.seeAll} <ArrowUpRight size={15} /></button></div><div className="stream-list">{filteredLists.length ? filteredLists.map((item, i) => <StreamRow key={item.id ?? i} item={item} index={i} onClick={() => undefined} />) : <div className="content-placeholder"><Radio size={18} /><span>Henüz Telegram IPTV içeriği yok.</span></div>}</div><div className="sync-line"><span>Telegram’dan gelen gerçek kayıtlar gösterilir</span><span>—</span></div></section>
@@ -273,6 +274,15 @@ export default function Home() {
 function NavItem({ icon, label, active, onClick, count }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; count?: string }) { return <button className={`nav-item ${active ? "active" : ""}`} onClick={onClick}>{icon}<span>{label}</span>{count && <em>{count}</em>}</button>; }
 function Metric({ icon, label, value, delta }: { icon: React.ReactNode; label: string; value: string; delta: string }) { return <div className="metric"><div className="metric-icon">{icon}</div><div><span>{label}</span><strong>{value}</strong></div><small>{delta}</small></div>; }
 function StreamRow({ item, index, onClick }: { item: ContentItem; index: number; onClick: () => void }) { const title = item.title || `Telegram ${item.category ?? "IPTV"} içeriği`; const meta = item.content ? item.content.slice(0, 80) : "Telegram kaydı"; return <button className="stream-row" onClick={onClick}><div className={`stream-logo ${index % 2 ? "violet" : "lime"}`}><Radio size={19} /></div><div className="stream-info"><strong>{title}</strong><span>{meta}</span></div><Badge tone="success"><span className="tiny-live" />Alındı</Badge><time>{item.createdAt ? new Date(item.createdAt).toLocaleDateString("tr-TR") : "—"}</time><ChevronRight size={16} /></button>; }
+function PlanSpotlight({ plan, onPlans, onPro }: { plan: string; onPlans: () => void; onPro: () => void }) {
+  const normalized = plan.replace("_trial", "");
+  const isPro = ["pro", "ultra"].includes(normalized);
+  const isUltra = normalized === "ultra";
+  const title = isUltra ? "Ultra avantajların açık" : isPro ? "Pro özelliklerin açık" : "Free planın aktif";
+  const subtitle = isUltra ? "Reklamsız kullanım ve Ultra topluluk ayrıcalıkları hesabına bağlı." : isPro ? "Özel Telegram sekmeleri ve daha seyrek reklam deneyimi hesabında aktif." : "Temel IPTV deneyimin hazır. Daha fazla içerik için planını yükseltebilirsin.";
+  const features = isUltra ? ["Reklamsız kullanım", "Günlük ücretsiz IPTV", "Çekiliş katılımı"] : isPro ? ["Steam / Mail / Film / Spor / Haber", "Pro Telegram akışı", "Daha seyrek reklam"] : ["M3U ve provider listeleri", "Temel IPTV akışı", "Topluluk duyuruları"];
+  return <section className={`plan-spotlight ${isUltra ? "ultra" : isPro ? "pro" : "free"}`}><div className="plan-spotlight-icon">{isUltra ? <Crown size={22} /> : isPro ? <Sparkles size={22} /> : <Zap size={22} />}</div><div className="plan-spotlight-copy"><div className="plan-spotlight-kicker">HESABIN / {normalized.toUpperCase()} <span>AKTİF</span></div><h2>{title}</h2><p>{subtitle}</p><div className="plan-spotlight-features">{features.map(feature => <span key={feature}><Check size={13} /> {feature}</span>)}</div></div><div className="plan-spotlight-actions">{!isUltra && <button className="outline-lime" onClick={onPlans}>{isPro ? "Ultra’yı incele" : "Pro özelliklerini aç"}</button>}{isPro && !isUltra && <button className="ghost-button" onClick={onPro}>Pro akışına git <ArrowUpRight size={14} /></button>}{isUltra && <Badge tone="success"><span className="tiny-live" /> Ayrıcalıklar açık</Badge>}</div></section>;
+}
 function HouseAdOverlay({ plan, onPlans }: { plan: string; onPlans: () => void }) {
   const [ad, setAd] = useState<HouseAd | null>(null);
   const [seconds, setSeconds] = useState(20);
