@@ -119,6 +119,7 @@ const copy = {
 type ContentItem = { id?: number; title?: string | null; content?: string | null; category?: string; createdAt?: string | Date | null };
 type IptvAccount = { username: string; plan: string };
 type Profile = { username: string; plan: string; displayName: string; email: string; avatarUrl: string; language: Lang };
+type HouseAd = { eyebrow: string; title: string; body: string; action: string; href: string };
 type UserChannel = { name: string; url: string; group?: string; logo?: string };
 type UserIptvList = { id: number; name: string; sourceType: "m3u" | "credentials"; channels: UserChannel[]; createdAt?: string };
 
@@ -126,6 +127,12 @@ const plans = [
   { name: "Free", price: "0", unit: "TL / $0", note: "Reklamlı deneyim", color: "slate", features: ["M3U listesi ekle", "Temel yayın takibi", "Topluluk duyuruları"] },
   { name: "Pro", price: "50", unit: "TL / $1", note: "Az reklam, daha çok kontrol", color: "violet", features: ["Free'deki her şey", "Daha az reklam", "Öncelikli destek"] },
   { name: "Ultra", price: "100", unit: "TL / $2", note: "Tam topluluk ayrıcalığı", color: "lime", features: ["Pro'daki her şey", "Günlük ücretsiz IPTV", "Çekilişlere katılım"] },
+];
+const houseAds: HouseAd[] = [
+  { eyebrow: "CRACKTEAM / ULTRA", title: "Ultra’ya geç, ayrıcalıkları aç.", body: "Günlük ücretsiz IPTV duyuruları, çekilişlere katılım ve Ultra topluluk akışına eriş.", action: "Ultra’yı incele", href: "#plans" },
+  { eyebrow: "TELEGRAM / HAVADAN YARDIM", title: "Yeni içerikleri ilk sen gör.", body: "@havadanyardim kanalındaki gerçek duyuruları takip et; etiketli içerikler CRACKTEAM İPTV’ye otomatik aktarılır.", action: "Telegram kanalını aç", href: "https://t.me/havadanyardim" },
+  { eyebrow: "FREE → ULTRA", title: "Neden Ultra’ya katılmalısın?", body: "Free reklamlı temel deneyim sunar. Ultra’da günlük IPTV paylaşımları, çekilişler ve özel topluluk avantajları açılır.", action: "Paketleri gör", href: "#plans" },
+  { eyebrow: "CRACKTEAM DUYURU", title: "Bot üzerinden kolay başvuru.", body: "Ultra veya Pro başvurusu için @ct_bot’a /paket Ultra Ahmet formatında yaz. Parolanı asla gönderme.", action: "Botu aç", href: "https://t.me/ct_bot" },
 ];
 
 function Badge({ children, tone = "default" }: { children: React.ReactNode; tone?: string }) {
@@ -251,6 +258,7 @@ export default function Home() {
 
       {modal && <AddModal lang={lang} mode={addMode} setMode={setAddMode} onClose={() => setModal(false)} onSaved={() => { setModal(false); loadMyLists(); notify(lang === "tr" ? "IPTV listen ve kanallar kaydedildi." : "IPTV list and channels saved."); }} />}
       {authModal && <AuthModal mode={authModal} onModeChange={setAuthModal} onClose={() => setAuthModal(null)} />}
+      <HouseAdOverlay plan={iptvAccount?.plan ?? "free"} onPlans={() => { setSection("plans"); setAdminMode(false); }} />
     </div>
   );
 }
@@ -258,6 +266,29 @@ export default function Home() {
 function NavItem({ icon, label, active, onClick, count }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void; count?: string }) { return <button className={`nav-item ${active ? "active" : ""}`} onClick={onClick}>{icon}<span>{label}</span>{count && <em>{count}</em>}</button>; }
 function Metric({ icon, label, value, delta }: { icon: React.ReactNode; label: string; value: string; delta: string }) { return <div className="metric"><div className="metric-icon">{icon}</div><div><span>{label}</span><strong>{value}</strong></div><small>{delta}</small></div>; }
 function StreamRow({ item, index, onClick }: { item: ContentItem; index: number; onClick: () => void }) { const title = item.title || `Telegram ${item.category ?? "IPTV"} içeriği`; const meta = item.content ? item.content.slice(0, 80) : "Telegram kaydı"; return <button className="stream-row" onClick={onClick}><div className={`stream-logo ${index % 2 ? "violet" : "lime"}`}><Radio size={19} /></div><div className="stream-info"><strong>{title}</strong><span>{meta}</span></div><Badge tone="success"><span className="tiny-live" />Alındı</Badge><time>{item.createdAt ? new Date(item.createdAt).toLocaleDateString("tr-TR") : "—"}</time><ChevronRight size={16} /></button>; }
+function HouseAdOverlay({ plan, onPlans }: { plan: string; onPlans: () => void }) {
+  const [ad, setAd] = useState<HouseAd | null>(null);
+  const [seconds, setSeconds] = useState(20);
+  useEffect(() => {
+    if (plan === "ultra" || plan === "ultra_trial") return;
+    const intervalMs = plan === "pro" ? 180000 : 90000;
+    const firstDelay = plan === "pro" ? 25000 : 10000;
+    const show = () => {
+      const last = Number(sessionStorage.getItem("ct_last_house_ad") ?? "0");
+      if (Date.now() - last < intervalMs - 1000) return;
+      const next = houseAds[Math.floor(Math.random() * houseAds.length)];
+      sessionStorage.setItem("ct_last_house_ad", String(Date.now()));
+      setSeconds(20); setAd(next);
+    };
+    const first = window.setTimeout(show, firstDelay);
+    const timer = window.setInterval(show, intervalMs);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+  }, [plan]);
+  useEffect(() => { if (!ad || seconds <= 0) return; const timer = window.setInterval(() => setSeconds(value => Math.max(0, value - 1)), 1000); return () => window.clearInterval(timer); }, [ad, seconds]);
+  if (!ad || plan === "ultra" || plan === "ultra_trial") return null;
+  const open = () => { if (ad.href === "#plans") onPlans(); else window.open(ad.href, "_blank", "noopener,noreferrer"); };
+  return <div className="house-ad-backdrop"><div className="house-ad-card" role="dialog" aria-modal="true"><div className="house-ad-top"><span className="house-ad-label">REKLAM / CRACKTEAM</span><span className="house-ad-timer">{seconds > 0 ? `${seconds} sn` : "Hazır"}</span></div><div className="house-ad-orb"><Sparkles size={28} /></div><span className="panel-kicker lime-text">{ad.eyebrow}</span><h2>{ad.title}</h2><p>{ad.body}</p><button className="wide-button" onClick={open}>{ad.action} <ArrowUpRight size={16} /></button><button className="house-ad-close" disabled={seconds > 0} onClick={() => setAd(null)}>{seconds > 0 ? `Kapatmak için ${seconds} saniye bekle` : "Reklamı kapat"}</button></div></div>;
+}
 function SettingsPage({ lang, profile, onSaved, onLanguageChange, onLogout }: { lang: Lang; profile: Profile | null; onSaved: (profile: Profile) => void; onLanguageChange: (lang: Lang) => void; onLogout: () => void }) {
   const tr = lang === "tr";
   const [displayName, setDisplayName] = useState(profile?.displayName ?? "");
