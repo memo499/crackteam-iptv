@@ -12,9 +12,11 @@ async function ensureTable(db: mysql.Connection) {
     accountUsername varchar(32) NOT NULL PRIMARY KEY,
     displayName varchar(80) NULL,
     email varchar(320) NULL,
+    avatarUrl text NULL,
     language enum('tr','en') NOT NULL DEFAULT 'tr',
     updatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   )`);
+  try { await db.execute("ALTER TABLE iptvProfiles ADD COLUMN avatarUrl TEXT NULL"); } catch { /* Existing deployments already have the column. */ }
 }
 
 export default async function handler(req: any, res: any) {
@@ -34,20 +36,22 @@ export default async function handler(req: any, res: any) {
     if (!account) return res.status(401).json({ ok: false, error: "Login required" });
 
     if (req.method === "GET") {
-      const [profiles] = await db.execute<any[]>("SELECT displayName, email, language, updatedAt FROM iptvProfiles WHERE accountUsername = ? LIMIT 1", [account.username]);
-      return res.json({ ok: true, profile: { username: account.username, plan: account.plan, ...(profiles[0] ?? { displayName: "", email: "", language: "tr" }) } });
+      const [profiles] = await db.execute<any[]>("SELECT displayName, email, avatarUrl, language, updatedAt FROM iptvProfiles WHERE accountUsername = ? LIMIT 1", [account.username]);
+      return res.json({ ok: true, profile: { username: account.username, plan: account.plan, ...(profiles[0] ?? { displayName: "", email: "", avatarUrl: "", language: "tr" }) } });
     }
 
     const body = req.body ?? {};
     const displayName = String(body.displayName ?? "").trim().slice(0, 80);
     const email = String(body.email ?? "").trim().slice(0, 320);
+    const avatarUrl = String(body.avatarUrl ?? "").trim();
     const language = body.language === "en" ? "en" : "tr";
     if (email && !/^\S+@\S+\.\S+$/.test(email)) return res.status(400).json({ ok: false, error: "Geçerli bir e-posta adresi girin" });
+    if (avatarUrl && (!/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(avatarUrl) || avatarUrl.length > 700000)) return res.status(400).json({ ok: false, error: "Avatar PNG, JPG veya WEBP olmalı ve 500 KB altında olmalı" });
     await db.execute(
-      "INSERT INTO iptvProfiles (accountUsername, displayName, email, language) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE displayName = VALUES(displayName), email = VALUES(email), language = VALUES(language)",
-      [account.username, displayName || null, email || null, language],
+      "INSERT INTO iptvProfiles (accountUsername, displayName, email, avatarUrl, language) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE displayName = VALUES(displayName), email = VALUES(email), avatarUrl = VALUES(avatarUrl), language = VALUES(language)",
+      [account.username, displayName || null, email || null, avatarUrl || null, language],
     );
-    return res.json({ ok: true, profile: { username: account.username, plan: account.plan, displayName, email, language } });
+    return res.json({ ok: true, profile: { username: account.username, plan: account.plan, displayName, email, avatarUrl, language } });
   } finally {
     await db.end();
   }

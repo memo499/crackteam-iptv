@@ -118,7 +118,7 @@ const copy = {
 
 type ContentItem = { id?: number; title?: string | null; content?: string | null; category?: string; createdAt?: string | Date | null };
 type IptvAccount = { username: string; plan: string };
-type Profile = { username: string; plan: string; displayName: string; email: string; language: Lang };
+type Profile = { username: string; plan: string; displayName: string; email: string; avatarUrl: string; language: Lang };
 type UserChannel = { name: string; url: string; group?: string; logo?: string };
 type UserIptvList = { id: number; name: string; sourceType: "m3u" | "credentials"; channels: UserChannel[]; createdAt?: string };
 
@@ -208,7 +208,7 @@ export default function Home() {
         </nav>
         <div className="sidebar-bottom">
           <div className="bot-card"><Bot size={17} /><div><strong>ct bot</strong><span>durum doğrulanıyor</span></div><span className="pulse-dot" /></div>
-          <button className="profile-row" onClick={() => (isAuthenticated || iptvAccount) ? go("settings") : setAuthModal("login")}><div className="avatar">{(profile?.displayName || iptvAccount?.username || user?.name || "?")[0].toUpperCase()}</div><div><strong>{profile?.displayName || iptvAccount?.username || user?.name || (isAuthenticated ? "Hesap" : "Giriş yapılmadı")}</strong><span>{iptvAccount?.plan ?? user?.role ?? "Giriş / kayıt"}</span></div><MoreHorizontal size={16} /></button>
+          <button className="profile-row" onClick={() => (isAuthenticated || iptvAccount) ? go("settings") : setAuthModal("login")}>{profile?.avatarUrl ? <img className="avatar avatar-image" src={profile.avatarUrl} alt="Avatar" /> : <div className="avatar">{(profile?.displayName || iptvAccount?.username || user?.name || "?")[0].toUpperCase()}</div>}<div><strong>{profile?.displayName || iptvAccount?.username || user?.name || (isAuthenticated ? "Hesap" : "Giriş yapılmadı")}</strong><span>{iptvAccount?.plan ?? user?.role ?? "Giriş / kayıt"}</span></div><MoreHorizontal size={16} /></button>
         </div>
       </aside>
 
@@ -224,7 +224,7 @@ export default function Home() {
         </header>
 
         <div className="content-wrap">
-          {adminMode ? <AdminPanel lang={lang} notify={notify} /> : section === "settings" ? <SettingsPage lang={lang} profile={profile ?? (iptvAccount ? { username: iptvAccount.username, plan: iptvAccount.plan, displayName: "", email: "", language: lang } : null)} onSaved={setProfile} onLanguageChange={setLang} onLogout={() => { localStorage.removeItem("ct_iptv_session"); setIptvAccount(null); setProfile(null); setSection("overview"); setAuthModal("login"); }} /> : section === "plans" ? <Plans lang={lang} onUpgrade={() => notify(lang === "tr" ? "Plan yükseltme talebi oluşturuldu." : "Upgrade request created")} /> : section === "messages" ? <Messages lang={lang} /> : section === "iptv" ? <IptvPage lang={lang} telegramItems={iptvItems} lists={myLists} onAdd={() => setModal(true)} /> : ["steam", "mail", "film", "spor", "haber"].includes(section) ? <ProSection lang={lang} category={section as "steam" | "mail" | "film" | "spor" | "haber"} /> : (
+          {adminMode ? <AdminPanel lang={lang} notify={notify} /> : section === "settings" ? <SettingsPage lang={lang} profile={profile ?? (iptvAccount ? { username: iptvAccount.username, plan: iptvAccount.plan, displayName: "", email: "", avatarUrl: "", language: lang } : null)} onSaved={setProfile} onLanguageChange={setLang} onLogout={() => { localStorage.removeItem("ct_iptv_session"); setIptvAccount(null); setProfile(null); setSection("overview"); setAuthModal("login"); }} /> : section === "plans" ? <Plans lang={lang} onUpgrade={() => notify(lang === "tr" ? "Plan yükseltme talebi oluşturuldu." : "Upgrade request created")} /> : section === "messages" ? <Messages lang={lang} /> : section === "iptv" ? <IptvPage lang={lang} telegramItems={iptvItems} lists={myLists} onAdd={() => setModal(true)} /> : ["steam", "mail", "film", "spor", "haber"].includes(section) ? <ProSection lang={lang} category={section as "steam" | "mail" | "film" | "spor" | "haber"} /> : (
             <>
               <section className="hero-row">
                 <div><div className="eyebrow"><span className="live-dot" /> {t.live} / 23 NOV 2026</div><h1>{t.welcome}</h1><p>{t.subtitle}</p></div>
@@ -262,21 +262,31 @@ function SettingsPage({ lang, profile, onSaved, onLanguageChange, onLogout }: { 
   const tr = lang === "tr";
   const [displayName, setDisplayName] = useState(profile?.displayName ?? "");
   const [email, setEmail] = useState(profile?.email ?? "");
+  const [avatarUrl, setAvatarUrl] = useState(profile?.avatarUrl ?? "");
   const [language, setLanguage] = useState<Lang>(profile?.language ?? lang);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  useEffect(() => { setDisplayName(profile?.displayName ?? ""); setEmail(profile?.email ?? ""); setLanguage(profile?.language ?? lang); }, [profile, lang]);
+  useEffect(() => { setDisplayName(profile?.displayName ?? ""); setEmail(profile?.email ?? ""); setAvatarUrl(profile?.avatarUrl ?? ""); setLanguage(profile?.language ?? lang); }, [profile, lang]);
+  const chooseAvatar = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return setMessage(tr ? "Lütfen bir resim seç." : "Please choose an image.");
+    if (file.size > 500 * 1024) return setMessage(tr ? "Avatar 500 KB altında olmalı." : "Avatar must be under 500 KB.");
+    const reader = new FileReader();
+    reader.onload = () => setAvatarUrl(String(reader.result ?? ""));
+    reader.readAsDataURL(file);
+  };
   const save = async () => {
     setBusy(true); setMessage("");
     try {
       const token = localStorage.getItem("ct_iptv_session");
-      const response = await fetch("/api/auth/profile", { method: "PUT", headers: { "content-type": "application/json", Authorization: `Bearer ${token ?? ""}` }, body: JSON.stringify({ displayName, email, language }) });
+      const response = await fetch("/api/auth/profile", { method: "PUT", headers: { "content-type": "application/json", Authorization: `Bearer ${token ?? ""}` }, body: JSON.stringify({ displayName, email, avatarUrl, language }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Profil kaydedilemedi");
       onSaved(payload.profile); onLanguageChange(language); setMessage(tr ? "Profil ayarların kaydedildi." : "Your profile settings were saved.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Profil kaydedilemedi"); } finally { setBusy(false); }
   };
-  return <div className="inner-page"><div className="page-title"><div><span className="eyebrow"><Settings2 size={14} /> {tr ? "HESAP / AYARLAR" : "ACCOUNT / SETTINGS"}</span><h1>{tr ? "Profilin" : "Your profile"}</h1><p>{tr ? "Hesap bilgilerini ve uygulama dilini buradan yönet." : "Manage your account details and app language here."}</p></div><Badge tone="default">{profile?.plan ?? "free"}</Badge></div><div className="admin-grid"><section className="admin-card"><div className="admin-card-head"><Settings2 size={18} /><strong>{tr ? "Profil bilgileri" : "Profile details"}</strong></div><label className="field"><span>{tr ? "Kullanıcı adı" : "Username"}</span><input value={profile?.username ?? ""} readOnly /></label><label className="field"><span>{tr ? "Görünen ad" : "Display name"}</span><input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder={tr ? "Adın" : "Your name"} maxLength={80} /></label><label className="field"><span>E-posta</span><input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="ornek@mail.com" /></label></section><section className="admin-card"><div className="admin-card-head"><Globe2 size={18} /><strong>{tr ? "Tercihler" : "Preferences"}</strong></div><label className="field"><span>{tr ? "Uygulama dili" : "App language"}</span><select value={language} onChange={e => setLanguage(e.target.value as Lang)}><option value="tr">Türkçe</option><option value="en">English</option></select></label><div className="rule-row"><span>{tr ? "Mevcut paket" : "Current plan"}</span><code>{profile?.plan ?? "free"}</code></div><div className="rule-row"><span>{tr ? "Parola" : "Password"}</span><span className="muted">{tr ? "Değiştirmek için yeni giriş akışı kullanılacak." : "Use the sign-in flow to change it."}</span></div></section></div>{message && <div className="detected-line">{message}</div>}<div className="modal-footer" style={{ paddingLeft: 0, paddingRight: 0, borderTop: 0 }}><span><ShieldCheck size={14} /> {tr ? "Profil bilgilerin hesabına bağlı saklanır." : "Your profile is stored with your account."}</span><div><button className="ghost-button" onClick={onLogout}>{tr ? "Çıkış yap" : "Sign out"}</button><button className="primary-button" disabled={busy} onClick={save}>{busy ? (tr ? "Kaydediliyor..." : "Saving...") : (tr ? "Değişiklikleri kaydet" : "Save changes")}</button></div></div></div>;
+  return <div className="inner-page"><div className="page-title"><div><span className="eyebrow"><Settings2 size={14} /> {tr ? "HESAP / AYARLAR" : "ACCOUNT / SETTINGS"}</span><h1>{tr ? "Profilin" : "Your profile"}</h1><p>{tr ? "Hesap bilgilerini ve uygulama dilini buradan yönet." : "Manage your account details and app language here."}</p></div><Badge tone="default">{profile?.plan ?? "free"}</Badge></div><div className="admin-grid"><section className="admin-card"><div className="admin-card-head"><Settings2 size={18} /><strong>{tr ? "Profil bilgileri" : "Profile details"}</strong></div><div className="avatar-editor">{avatarUrl ? <img className="avatar-large avatar-image" src={avatarUrl} alt="Avatar önizleme" /> : <div className="avatar-large">{(displayName || profile?.username || "?")[0].toUpperCase()}</div>}<label className="outline-lime avatar-picker">{tr ? "Avatar seç" : "Choose avatar"}<input type="file" accept="image/png,image/jpeg,image/webp" onChange={chooseAvatar} /></label><span className="muted">PNG, JPG veya WEBP · 500 KB</span></div><label className="field"><span>{tr ? "Kullanıcı adı" : "Username"}</span><input value={profile?.username ?? ""} readOnly /></label><label className="field"><span>{tr ? "Görünen ad" : "Display name"}</span><input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder={tr ? "Adın" : "Your name"} maxLength={80} /></label><label className="field"><span>E-posta</span><input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="ornek@mail.com" /></label></section><section className="admin-card"><div className="admin-card-head"><Globe2 size={18} /><strong>{tr ? "Tercihler" : "Preferences"}</strong></div><label className="field"><span>{tr ? "Uygulama dili" : "App language"}</span><select value={language} onChange={e => setLanguage(e.target.value as Lang)}><option value="tr">Türkçe</option><option value="en">English</option></select></label><div className="rule-row"><span>{tr ? "Mevcut paket" : "Current plan"}</span><code>{profile?.plan ?? "free"}</code></div><div className="rule-row"><span>{tr ? "Parola" : "Password"}</span><span className="muted">{tr ? "Değiştirmek için yeni giriş akışı kullanılacak." : "Use the sign-in flow to change it."}</span></div></section></div>{message && <div className="detected-line">{message}</div>}<div className="modal-footer" style={{ paddingLeft: 0, paddingRight: 0, borderTop: 0 }}><span><ShieldCheck size={14} /> {tr ? "Profil bilgilerin hesabına bağlı saklanır." : "Your profile is stored with your account."}</span><div><button className="ghost-button" onClick={onLogout}>{tr ? "Çıkış yap" : "Sign out"}</button><button className="primary-button" disabled={busy} onClick={save}>{busy ? (tr ? "Kaydediliyor..." : "Saving...") : (tr ? "Değişiklikleri kaydet" : "Save changes")}</button></div></div></div>;
 }
 function IptvPage({ lang, telegramItems, lists, onAdd }: { lang: Lang; telegramItems: ContentItem[]; lists: UserIptvList[]; onAdd: () => void }) {
   const tr = lang === "tr";
