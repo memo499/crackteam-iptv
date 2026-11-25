@@ -136,7 +136,9 @@ export default async function handler(req: any, res: any) {
       await sendMessage(chatId, "CRACKTEAM İPTV kaydın tamamlandı. 30 gün boyunca Ultra denemen aktif.");
       return res.json({ ok: true, registered: true, trialDays: 30 });
     }
-    if (!update.channel_post) return res.json({ ok: true, ignored: "direct_message_command_required" });
+    // Channel posts arrive as `channel_post`; ordinary group posts arrive as
+    // `message`. Both are valid content sources when the chat is configured.
+    if (!update.channel_post && !update.message) return res.json({ ok: true, ignored: "unsupported_update" });
     const channelUsername = String(message.chat?.username ?? "").replace(/^@/, "").toLowerCase();
     if (channelUsername !== CHANNEL) return res.json({ ok: true, ignored: "channel_not_allowed" });
     const rule = classify(text);
