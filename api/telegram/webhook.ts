@@ -45,19 +45,18 @@ async function handlePackageCommand(connection: mysql.Connection, message: any, 
   const parts = text.trim().split(/\s+/);
   const plan = parts[1]?.toLowerCase() as PaidPlan | undefined;
   if (!plan || !(plan in PLAN_STARS)) {
-    await sendMessage(String(message.chat?.id ?? ""), "Paket seçimi için şu formatı kullan:\n/paket pro kullanıcı_adın şifren\n/paket ultra kullanıcı_adın şifren\n\nŞifren veritabanına kaydedilmez ve admin bildiriminde gösterilmez.");
+    await sendMessage(String(message.chat?.id ?? ""), "Paket başvurusu için şu formatı kullan:\n/paket Pro Ahmet\n/paket Ultra Ahmet\n\nYalnızca paket adını ve hesap kullanıcı adını yaz. Parola gönderme.");
     return { ok: true, packageHelp: true };
   }
   const username = parts[2];
-  const password = parts[3];
-  if (!username || !password) {
-    await sendMessage(String(message.chat?.id ?? ""), `/${"paket"} ${plan} kullanıcı_adın şifren şeklinde gönder. Örnek: /paket ${plan} mehmet 1234\nŞifre sadece talep formatını doğrulamak için alınır; kaydedilmez.`);
+  if (!username || parts.length !== 3) {
+    await sendMessage(String(message.chat?.id ?? ""), `/paket ${plan === "pro" ? "Pro" : "Ultra"} Ahmet şeklinde gönder. Sadece paket ve kullanıcı adı gerekli; parola gönderme.`);
     return { ok: true, packageFormatRequired: true };
   }
 
   const request = await createSubscriptionRequest(connection, message, plan, username);
   const chatId = String(message.chat?.id ?? "");
-  await sendMessage(chatId, `Talebin oluşturuldu: ${request.requestId}\n\n1. @ct_bot botuna gir.\n2. ${plan.toUpperCase()} paket talebini gönder.\n3. ${request.stars} Telegram Yıldızı ${ADMIN_USERNAME} hesabına gönder.\n4. Ödeme sonrası ${ADMIN_USERNAME} hesabına DM at.\n\nAdmin ödemeyi kontrol ettikten sonra paketini aktif edecek. Şifren kaydedilmedi.`);
+  await sendMessage(chatId, `Talebin oluşturuldu: ${request.requestId}\n\n1. ${request.stars} Telegram Yıldızı ${ADMIN_USERNAME} hesabına gönder.\n2. Ödeme sonrası ${ADMIN_USERNAME} hesabına DM at.\n\nAdmin ödemeyi kontrol ettikten sonra paketini aktif edecek. Parola istenmedi ve kaydedilmedi.`);
 
   const adminId = ADMIN_USER_ID;
   if (adminId) {
