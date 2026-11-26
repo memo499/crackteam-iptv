@@ -68,6 +68,8 @@ function helpMessage() {
     "/id — Telegram kullanıcı ID’ni gösterir",
     "/paket Pro Ahmet — Pro başvurusu",
     "/paket Ultra Ahmet — Ultra başvurusu",
+    "/mağaza — Satıştaki ürünleri gösterir",
+    "/satınal ÜRÜN_ID — Satın alma talebi oluşturur",
     "/help — Bu yardım menüsü",
     "",
     "PAKET BAŞVURU AKIŞI",
@@ -82,12 +84,176 @@ function helpMessage() {
     "/ahmethayır — Kullanıcı adına göre reddet",
     "/onay CT-XXXXXXXX — Talep koduyla onayla",
     "/evet veya /hayır — Sıradaki talebi yönet",
+    "/newshop — Yeni mağaza ürünü ekleme sihirbazı",
+    "/satinonay ID / /satinred ID — Mağaza talebi yönetimi",
     "",
     "GÜVENLİK",
     "Parolanı Telegram’a gönderme. Bot parola istemez, kaydetmez ve onay mesajında yalnızca ## gösterir.",
     "",
     "Destek için admin hesabına DM gönderebilirsin.",
   ].join("\n");
+}
+
+async function ensureShopTables(connection: mysql.Connection) {
+  await connection.execute(`CREATE TABLE IF NOT EXISTS shopProducts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(160) NOT NULL,
+    description TEXT NOT NULL,
+    price VARCHAR(64) NOT NULL,
+    active TINYINT(1) NOT NULL DEFAULT 1,
+    createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  await connection.execute(`CREATE TABLE IF NOT EXISTS shopStock (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    productId INT NOT NULL,
+    itemData LONGTEXT NOT NULL,
+    status ENUM('available','sold') NOT NULL DEFAULT 'available',
+    buyerTelegramUserId VARCHAR(64) NULL,
+    soldAt TIMESTAMP NULL,
+    createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX shopStock_product_status_idx (productId, status)
+  )`);
+  await connection.execute(`CREATE TABLE IF NOT EXISTS shopOrders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    productId INT NOT NULL,
+    buyerTelegramUserId VARCHAR(64) NOT NULL,
+    buyerUsername VARCHAR(128) NULL,
+    status ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+    stockId INT NULL,
+    createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    approvedAt TIMESTAMP NULL,
+    INDEX shopOrders_status_idx (status)
+  )`);
+  await connection.execute(`CREATE TABLE IF NOT EXISTS shopDrafts (
+    telegramUserId VARCHAR(64) PRIMARY KEY,
+    step VARCHAR(32) NOT NULL,
+    productName VARCHAR(160) NULL,
+    description TEXT NULL,
+    price VARCHAR(64) NULL,
+    stockTotal INT NULL,
+    productId INT NULL,
+    currentItem INT NOT NULL DEFAULT 1,
+    items LONGTEXT NULL,
+    updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  )`);
+}
+
+function isAdmin(message: any) {
+  return String(message.from?.id ?? "") === ADMIN_USER_ID;
+}
+
+function shopMessage(rows: any[]) {
+  if (!rows.length) return "CRACKTEAM MAĞAZA\n━━━━━━━━━━━━━━━━━━━━\nŞu anda satışta ürün yok.\n\nYeni ürünler eklendiğinde burada görünecek.";
+  return [
+    "CRACKTEAM MAĞAZA",
+    "━━━━━━━━━━━━━━━━━━━━",
+    ...rows.map((row) => `#${row.id} ${row.name}\n${row.description}\nFiyat: ${row.price}\nStok: ${row.stockCount}\nSatın almak için: /satınal ${row.id}`),
+    "",
+    "Satın alma talebi admin onayından sonra tamamlanır.",
+  ].join("\n\n");
+}
+
+function parseStockItem(text: string) {
+  const values: Record<string, string> = {};
+  for (const line of text.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) {
+    const match = line.match(/^(ad|user|kullanıcı adı|pass|password|şifre|link)\s*[:=]?\s*(.+)$/i);
+    if (!match) continue;
+    const key = /^(ad|user|kullanıcı adı)$/i.test(match[1]) ? "username" : /^(pass|password|şifre)$/i.test(match[1]) ? "password" : "link";
+    values[key] = match[2].trim();
+  }
+  if (!values.username || !values.password || !values.link) return null;
+  if (!/^https?:\/\//i.test(values.link)) values.link = `http://${values.link}`;
+  return values;
+}
+
+async function handleShopList(connection: mysql.Connection, message: any) {
+  await ensureShopTables(connection);
+  const [rows] = await connection.execute<any[]>(`SELECT p.id, p.name, p.description, p.price, COUNT(s.id) AS stockCount
+    FROM shopProducts p LEFT JOIN shopStock s ON s.productId = p.id AND s.status = 'available'
+    WHERE p.active = 1 GROUP BY p.id ORDER BY p.createdAt DESC`);
+  await sendMessage(String(message.chat?.id ?? ""), shopMessage(rows));
+  return { ok: true, shop: true, productCount: rows.length };
+}
+
+async function handleNewShop(connection: mysql.Connection, message: any) {
+  if (!isAdmin(message)) { await sendMessage(String(message.chat?.id ?? ""), "Bu komut yalnızca admin tarafından kullanılabilir."); return { ok: false, error: "admin_only" }; }
+  await ensureShopTables(connection);
+  const adminId = ADMIN_USER_ID;
+  await connection.execute("INSERT INTO shopDrafts (telegramUserId, step, currentItem, items) VALUES (?, 'name', 1, '[]') ON DUPLICATE KEY UPDATE step = 'name', currentItem = 1, items = '[]'", [adminId]);
+  await sendMessage(String(message.chat?.id ?? ""), "Yeni mağaza ürünü başlatıldı.\n\n1/4 Ürün adını yazın:");
+  return { ok: true, shopWizard: "name" };
+}
+
+async function handleShopWizard(connection: mysql.Connection, message: any, text: string) {
+  if (!isAdmin(message)) return null;
+  await ensureShopTables(connection);
+  const [draftRows] = await connection.execute<any[]>("SELECT * FROM shopDrafts WHERE telegramUserId = ? LIMIT 1", [ADMIN_USER_ID]);
+  const draft = draftRows[0];
+  if (!draft) return null;
+  const chatId = String(message.chat?.id ?? "");
+  if (text.trim().toLowerCase() === "/cancelshop") { await connection.execute("DELETE FROM shopDrafts WHERE telegramUserId = ?", [ADMIN_USER_ID]); await sendMessage(chatId, "Mağaza ürün ekleme iptal edildi."); return { ok: true, cancelled: true }; }
+  if (draft.step === "name") { await connection.execute("UPDATE shopDrafts SET step = 'description', productName = ? WHERE telegramUserId = ?", [text.trim().slice(0, 160), ADMIN_USER_ID]); await sendMessage(chatId, "2/4 Ürün açıklamasını yazın:"); return { ok: true, shopWizard: "description" }; }
+  if (draft.step === "description") { await connection.execute("UPDATE shopDrafts SET step = 'price', description = ? WHERE telegramUserId = ?", [text.trim().slice(0, 4000), ADMIN_USER_ID]); await sendMessage(chatId, "3/4 Fiyatı yazın. Örnek: 50 TL / 2 USD"); return { ok: true, shopWizard: "price" }; }
+  if (draft.step === "price") { await connection.execute("UPDATE shopDrafts SET step = 'stock', price = ? WHERE telegramUserId = ?", [text.trim().slice(0, 64), ADMIN_USER_ID]); await sendMessage(chatId, "4/4 Kaç adet stok var? Sadece sayı yazın:"); return { ok: true, shopWizard: "stock" }; }
+  if (draft.step === "stock") {
+    const count = Number.parseInt(text.trim(), 10);
+    if (!Number.isInteger(count) || count < 1 || count > 5000) { await sendMessage(chatId, "Stok 1 ile 5000 arasında bir sayı olmalı."); return { ok: true, invalidStock: true }; }
+    const [product] = await connection.execute<any>("INSERT INTO shopProducts (name, description, price) VALUES (?, ?, ?)", [draft.productName, draft.description, draft.price]);
+    await connection.execute("UPDATE shopDrafts SET step = 'item', stockTotal = ?, productId = ?, currentItem = 1 WHERE telegramUserId = ?", [count, product.insertId, ADMIN_USER_ID]);
+    await sendMessage(chatId, `Stok kaydı başladı. 1/${count} ürünü şu formatta gönderin:\n\nad Memo\npass şifre\nlink http://ornek.com`);
+    return { ok: true, shopWizard: "item", stockTotal: count };
+  }
+  if (draft.step === "item") {
+    const item = parseStockItem(text);
+    if (!item) { await sendMessage(chatId, "Format eksik. Şu üç satırı gönderin:\nad Memo\npass şifre\nlink http://ornek.com"); return { ok: true, invalidStockItem: true }; }
+    await connection.execute("INSERT INTO shopStock (productId, itemData) VALUES (?, ?)", [draft.productId, JSON.stringify(item)]);
+    if (draft.currentItem >= draft.stockTotal) {
+      await connection.execute("DELETE FROM shopDrafts WHERE telegramUserId = ?", [ADMIN_USER_ID]);
+      await sendMessage(chatId, `Ürün mağazaya eklendi.\nÜrün: ${draft.productName}\nToplam stok: ${draft.stockTotal}`);
+      return { ok: true, shopCreated: draft.productId };
+    }
+    await connection.execute("UPDATE shopDrafts SET currentItem = currentItem + 1 WHERE telegramUserId = ?", [ADMIN_USER_ID]);
+    await sendMessage(chatId, `${draft.currentItem + 1}/${draft.stockTotal} ürünü gönderin:\nad Memo\npass şifre\nlink http://ornek.com`);
+    return { ok: true, stockAdded: draft.currentItem };
+  }
+  return null;
+}
+
+async function handleShopPurchase(connection: mysql.Connection, message: any, text: string) {
+  await ensureShopTables(connection);
+  const match = text.trim().match(/^\/(?:satınal|satinal|buy)\s+(\d+)$/i);
+  const productId = Number(match?.[1]);
+  if (!productId) { await sendMessage(String(message.chat?.id ?? ""), "Kullanım: /satınal ÜRÜN_ID\nÜrünleri görmek için /mağaza yaz."); return { ok: true, purchaseHelp: true }; }
+  const [products] = await connection.execute<any[]>("SELECT id, name, price FROM shopProducts WHERE id = ? AND active = 1 LIMIT 1", [productId]);
+  if (!products[0]) { await sendMessage(String(message.chat?.id ?? ""), "Bu ürün bulunamadı veya satıştan kaldırıldı."); return { ok: false, error: "product_not_found" }; }
+  const userId = String(message.from?.id ?? message.chat?.id ?? "");
+  const [pending] = await connection.execute<any[]>("SELECT id FROM shopOrders WHERE productId = ? AND buyerTelegramUserId = ? AND status = 'pending' LIMIT 1", [productId, userId]);
+  if (pending[0]) { await sendMessage(String(message.chat?.id ?? ""), `Bu ürün için zaten #${pending[0].id} numaralı bekleyen talebin var.`); return { ok: true, existingOrder: pending[0].id }; }
+  const [result] = await connection.execute<any>("INSERT INTO shopOrders (productId, buyerTelegramUserId, buyerUsername) VALUES (?, ?, ?)", [productId, userId, message.from?.username ? String(message.from.username) : null]);
+  const orderId = result.insertId;
+  await sendMessage(String(message.chat?.id ?? ""), `Satın alma talebin #${orderId} oluşturuldu.\nÜrün: ${products[0].name}\nFiyat: ${products[0].price}\n\nAdmin ödeme kontrolünden sonra stok bilgilerini DM ile gönderir.`);
+  await sendMessage(ADMIN_USER_ID, `Yeni mağaza talebi #${orderId}\nÜrün: ${products[0].name}\nFiyat: ${products[0].price}\nKullanıcı: ${message.from?.username ? `@${message.from.username}` : "kullanıcı adı yok"}\n\nOnay: /satinonay ${orderId}\nRed: /satinred ${orderId}`);
+  return { ok: true, orderId };
+}
+
+async function handleShopOrderDecision(connection: mysql.Connection, message: any, text: string) {
+  if (!isAdmin(message)) { await sendMessage(String(message.chat?.id ?? ""), "Bu komut yalnızca admin tarafından kullanılabilir."); return { ok: false, error: "admin_only" }; }
+  const match = text.trim().match(/^\/(satinonay|satinred|satınonay|satınred)\s+(\d+)$/i);
+  if (!match) return null;
+  const orderId = Number(match[2]);
+  const approve = /onay/i.test(match[1]);
+  const [orders] = await connection.execute<any[]>("SELECT o.*, p.name, p.price FROM shopOrders o JOIN shopProducts p ON p.id = o.productId WHERE o.id = ? LIMIT 1", [orderId]);
+  const order = orders[0];
+  if (!order || order.status !== "pending") { await sendMessage(String(message.chat?.id ?? ""), "Bekleyen mağaza talebi bulunamadı."); return { ok: false, error: "order_not_found" }; }
+  if (!approve) { await connection.execute("UPDATE shopOrders SET status = 'rejected' WHERE id = ?", [orderId]); await sendMessage(String(order.buyerTelegramUserId), `Mağaza talebin #${orderId} reddedildi.`); await sendMessage(String(message.chat?.id ?? ""), `#${orderId} talebi reddedildi.`); return { ok: true, rejected: orderId }; }
+  const [stockRows] = await connection.execute<any[]>("SELECT id, itemData FROM shopStock WHERE productId = ? AND status = 'available' ORDER BY id ASC LIMIT 1", [order.productId]);
+  if (!stockRows[0]) { await sendMessage(String(message.chat?.id ?? ""), "Bu ürünün stoğu bitmiş."); return { ok: false, error: "out_of_stock" }; }
+  const item = JSON.parse(stockRows[0].itemData);
+  await connection.execute("UPDATE shopStock SET status = 'sold', buyerTelegramUserId = ?, soldAt = NOW() WHERE id = ? AND status = 'available'", [order.buyerTelegramUserId, stockRows[0].id]);
+  await connection.execute("UPDATE shopOrders SET status = 'approved', stockId = ?, approvedAt = NOW() WHERE id = ?", [stockRows[0].id, orderId]);
+  await sendMessage(String(order.buyerTelegramUserId), `CRACKTEAM MAĞAZA\n━━━━━━━━━━━━━━━━━━━━\nSipariş #${orderId} onaylandı.\nÜrün: ${order.name}\n\nAD  ${item.username}\nPASS  ${item.password}\nLINK  ${item.link}\n\nGüle güle kullan!`);
+  await sendMessage(String(message.chat?.id ?? ""), `#${orderId} onaylandı. Stoktan 1 adet düşüldü ve bilgiler kullanıcıya DM gönderildi.`);
+  return { ok: true, approved: orderId, stockId: stockRows[0].id };
 }
 
 async function createSubscriptionRequest(connection: mysql.Connection, message: any, plan: PaidPlan, username: string) {
@@ -191,6 +357,14 @@ export default async function handler(req: any, res: any) {
     if (update.message && /^\/id\b/i.test(text.trim())) {
       await sendMessage(chatId, `Telegram kullanıcı ID'n: ${String(message.from?.id ?? chatId)}\nBu numarayı admin yetkisi için kullanabilirsin.`);
       return res.json({ ok: true, userId: String(message.from?.id ?? chatId) });
+    }
+    if (update.message && /^\/(?:mağaza|magaza|shop)\b/i.test(text.trim())) return res.json(await handleShopList(connection, message));
+    if (update.message && /^\/newshop\b/i.test(text.trim())) return res.json(await handleNewShop(connection, message));
+    if (update.message && /^\/(?:satınal|satinal|buy)\b/i.test(text.trim())) return res.json(await handleShopPurchase(connection, message, text));
+    if (update.message && /^\/(?:satinonay|satinred|satınonay|satınred)\b/i.test(text.trim())) return res.json(await handleShopOrderDecision(connection, message, text));
+    if (update.message) {
+      const wizardResult = await handleShopWizard(connection, message, text);
+      if (wizardResult) return res.json(wizardResult);
     }
     if (update.message && /^\/(paket|package|plan)\b/i.test(text.trim())) return res.json(await handlePackageCommand(connection, message, text));
     if (update.message && /^\/(onay|approve|red|reject|evet|hayır|hayir|[a-zA-Z0-9_]+(?:onay|hayır|hayir))\b/i.test(text.trim())) return res.json(await handleAdminApproval(connection, message, text));
