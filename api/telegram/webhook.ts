@@ -107,7 +107,7 @@ function helpMessage() {
     "/onay CT-XXXXXXXX — Talep koduyla onayla",
     "/evet veya /hayır — Sıradaki talebi yönet",
     "/newshop — Yeni mağaza ürünü ekleme sihirbazı",
-    "/satinonay ID / /satinred ID — Mağaza talebi yönetimi",
+    "/satinonay ID / /satinred ID — Eski siparişler için yönetim",
     "",
     "GÜVENLİK",
     "Parolanı Telegram’a gönderme. Bot parola istemez, kaydetmez ve onay mesajında yalnızca ## gösterir.",
@@ -117,6 +117,11 @@ function helpMessage() {
 }
 
 async function ensureShopTables(connection: mysql.Connection) {
+  await connection.execute(`CREATE TABLE IF NOT EXISTS botPreferences (
+    telegramUserId VARCHAR(64) PRIMARY KEY,
+    language ENUM('tr','en') NOT NULL DEFAULT 'tr',
+    updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  )`);
   await connection.execute(`CREATE TABLE IF NOT EXISTS shopProducts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(160) NOT NULL,
@@ -160,18 +165,22 @@ async function ensureShopTables(connection: mysql.Connection) {
   )`);
 }
 
+async function setBotLanguage(connection: mysql.Connection, telegramUserId: string, language: "tr" | "en") {
+  await connection.execute("INSERT INTO botPreferences (telegramUserId, language) VALUES (?, ?) ON DUPLICATE KEY UPDATE language = VALUES(language)", [telegramUserId, language]);
+}
+
 function isAdmin(message: any) {
   return String(message.from?.id ?? "") === ADMIN_USER_ID;
 }
 
-function shopMessage(rows: any[]) {
-  if (!rows.length) return "CRACKTEAM MAĞAZA\n━━━━━━━━━━━━━━━━━━━━\nŞu anda satışta ürün yok.\n\nYeni ürünler eklendiğinde burada görünecek.";
+function shopMessage(rows: any[], language: "tr" | "en") {
+  if (!rows.length) return language === "en" ? "CRACKTEAM SHOP\n━━━━━━━━━━━━━━━━━━━━\nThere are no products for sale right now." : "CRACKTEAM MAĞAZA\n━━━━━━━━━━━━━━━━━━━━\nŞu anda satışta ürün yok.";
   return [
-    "CRACKTEAM MAĞAZA",
+    language === "en" ? "CRACKTEAM SHOP" : "CRACKTEAM MAĞAZA",
     "━━━━━━━━━━━━━━━━━━━━",
-    ...rows.map((row) => `#${row.id} ${row.name}\n${row.description}\nFiyat: ${row.price}\nStok: ${row.stockCount}\nSatın almak için: /satınal ${row.id}`),
+    ...rows.map((row) => language === "en" ? `#${row.id} ${row.name}\n${row.description}\nPrice: ${row.price}\nStock: ${row.stockCount}\nBuy: /buy ${row.id}` : `#${row.id} ${row.name}\n${row.description}\nFiyat: ${row.price}\nStok: ${row.stockCount}\nSatın almak için: /satınal ${row.id}`),
     "",
-    "Satın alma talebi admin onayından sonra tamamlanır.",
+    language === "en" ? "If stock is available, delivery is automatic." : "Stok varsa teslimat otomatik yapılır.",
   ].join("\n\n");
 }
 
@@ -215,7 +224,8 @@ async function handleShopList(connection: mysql.Connection, message: any) {
   const [rows] = await connection.execute<any[]>(`SELECT p.id, p.name, p.description, p.price, COUNT(s.id) AS stockCount
     FROM shopProducts p LEFT JOIN shopStock s ON s.productId = p.id AND s.status = 'available'
     WHERE p.active = 1 GROUP BY p.id ORDER BY p.createdAt DESC`);
-  await sendMessage(String(message.chat?.id ?? ""), shopMessage(rows));
+  const [preferences] = await connection.execute<any[]>("SELECT language FROM botPreferences WHERE telegramUserId = ? LIMIT 1", [String(message.from?.id ?? message.chat?.id ?? "")]);
+  await sendMessage(String(message.chat?.id ?? ""), shopMessage(rows, preferences[0]?.language === "en" ? "en" : "tr"));
   return { ok: true, shop: true, productCount: rows.length };
 }
 
@@ -267,17 +277,31 @@ async function handleShopPurchase(connection: mysql.Connection, message: any, te
   await ensureShopTables(connection);
   const match = text.trim().match(/^\/(?:satınal|satinal|buy)\s+(\d+)$/i);
   const productId = Number(match?.[1]);
-  if (!productId) { await sendMessage(String(message.chat?.id ?? ""), "Kullanım: /satınal ÜRÜN_ID\nÜrünleri görmek için /mağaza yaz."); return { ok: true, purchaseHelp: true }; }
-  const [products] = await connection.execute<any[]>("SELECT id, name, price FROM shopProducts WHERE id = ? AND active = 1 LIMIT 1", [productId]);
-  if (!products[0]) { await sendMessage(String(message.chat?.id ?? ""), "Bu ürün bulunamadı veya satıştan kaldırıldı."); return { ok: false, error: "product_not_found" }; }
   const userId = String(message.from?.id ?? message.chat?.id ?? "");
-  const [pending] = await connection.execute<any[]>("SELECT id FROM shopOrders WHERE productId = ? AND buyerTelegramUserId = ? AND status = 'pending' LIMIT 1", [productId, userId]);
-  if (pending[0]) { await sendMessage(String(message.chat?.id ?? ""), `Bu ürün için zaten #${pending[0].id} numaralı bekleyen talebin var.`); return { ok: true, existingOrder: pending[0].id }; }
-  const [result] = await connection.execute<any>("INSERT INTO shopOrders (productId, buyerTelegramUserId, buyerUsername) VALUES (?, ?, ?)", [productId, userId, message.from?.username ? String(message.from.username) : null]);
-  const orderId = result.insertId;
-  await sendMessage(String(message.chat?.id ?? ""), `Satın alma talebin #${orderId} oluşturuldu.\nÜrün: ${products[0].name}\nFiyat: ${products[0].price}\n\nAdmin ödeme kontrolünden sonra stok bilgilerini DM ile gönderir.`);
-  await sendMessage(ADMIN_USER_ID, `Yeni mağaza talebi #${orderId}\nÜrün: ${products[0].name}\nFiyat: ${products[0].price}\nKullanıcı: ${message.from?.username ? `@${message.from.username}` : "kullanıcı adı yok"}\n\nOnay: /satinonay ${orderId}\nRed: /satinred ${orderId}`);
-  return { ok: true, orderId };
+  const [preferences] = await connection.execute<any[]>("SELECT language FROM botPreferences WHERE telegramUserId = ? LIMIT 1", [userId]);
+  const language = preferences[0]?.language === "en" ? "en" : "tr";
+  if (!productId) { await sendMessage(String(message.chat?.id ?? ""), language === "en" ? "Usage: /buy PRODUCT_ID\nUse /shop to see products." : "Kullanım: /satınal ÜRÜN_ID\nÜrünleri görmek için /mağaza yaz."); return { ok: true, purchaseHelp: true }; }
+  const [products] = await connection.execute<any[]>("SELECT id, name, price FROM shopProducts WHERE id = ? AND active = 1 LIMIT 1", [productId]);
+  if (!products[0]) { await sendMessage(String(message.chat?.id ?? ""), language === "en" ? "This product was not found or is no longer for sale." : "Bu ürün bulunamadı veya satıştan kaldırıldı."); return { ok: false, error: "product_not_found" }; }
+  await connection.beginTransaction();
+  try {
+    const [stockRows] = await connection.execute<any[]>("SELECT id, itemData FROM shopStock WHERE productId = ? AND status = 'available' ORDER BY id ASC LIMIT 1 FOR UPDATE", [productId]);
+    if (!stockRows[0]) { await connection.rollback(); await sendMessage(String(message.chat?.id ?? ""), language === "en" ? "This product is out of stock." : "Bu ürünün stoğu bitmiş."); return { ok: false, error: "out_of_stock" }; }
+    const [result] = await connection.execute<any>("INSERT INTO shopOrders (productId, buyerTelegramUserId, buyerUsername, status, stockId, approvedAt) VALUES (?, ?, ?, 'approved', ?, NOW())", [productId, userId, message.from?.username ? String(message.from.username) : null, stockRows[0].id]);
+    const orderId = result.insertId;
+    await connection.execute("UPDATE shopStock SET status = 'sold', buyerTelegramUserId = ?, soldAt = NOW() WHERE id = ? AND status = 'available'", [userId, stockRows[0].id]);
+    await connection.commit();
+    const item = JSON.parse(stockRows[0].itemData);
+    const heading = language === "en" ? `CRACKTEAM SHOP\nOrder #${orderId} completed.\nProduct: ${products[0].name}` : `CRACKTEAM MAĞAZA\nSipariş #${orderId} tamamlandı.\nÜrün: ${products[0].name}`;
+    if (item.kind === "message") await copyShopMessage(userId, item);
+    else if (item.kind === "file") await sendShopFile(userId, item, `${heading}\n\n${item.fileName}`);
+    else await sendMessage(userId, `${heading}\n\n${language === "en" ? "USERNAME" : "AD"}  ${item.username}\n${language === "en" ? "PASSWORD" : "ŞİFRE"}  ${item.password}${item.link ? `\nLINK  ${item.link}` : ""}\n\n${language === "en" ? "Enjoy your purchase!" : "Güle güle kullan!"}`);
+    await sendMessage(String(message.chat?.id ?? ""), language === "en" ? `Purchase #${orderId} completed automatically. Your item was delivered.` : `#${orderId} satın alımı otomatik tamamlandı. Ürünün gönderildi.`);
+    return { ok: true, orderId, delivered: true };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  }
 }
 
 async function handleShopOrderDecision(connection: mysql.Connection, message: any, text: string) {
@@ -408,6 +432,18 @@ export default async function handler(req: any, res: any) {
     if (update.message && /^\/id\b/i.test(text.trim())) {
       await sendMessage(chatId, `Telegram kullanıcı ID'n: ${String(message.from?.id ?? chatId)}\nBu numarayı admin yetkisi için kullanabilirsin.`);
       return res.json({ ok: true, userId: String(message.from?.id ?? chatId) });
+    }
+    if (update.message && /^\/eng(?:@\w+)?\b/i.test(text.trim())) {
+      await ensureShopTables(connection);
+      await setBotLanguage(connection, String(message.from?.id ?? chatId), "en");
+      await sendMessage(chatId, "Language changed to English. Use /tr to switch back to Turkish.");
+      return res.json({ ok: true, language: "en" });
+    }
+    if (update.message && /^\/tr(?:@\w+)?\b/i.test(text.trim())) {
+      await ensureShopTables(connection);
+      await setBotLanguage(connection, String(message.from?.id ?? chatId), "tr");
+      await sendMessage(chatId, "Dil Türkçe olarak ayarlandı. İngilizce için /eng yazabilirsin.");
+      return res.json({ ok: true, language: "tr" });
     }
     if (update.message && /^\/(?:mağaza|magaza|shop)\b/i.test(text.trim())) return res.json(await handleShopList(connection, message));
     if (update.message && /^\/newshop\b/i.test(text.trim())) return res.json(await handleNewShop(connection, message));
