@@ -155,14 +155,22 @@ function shopMessage(rows: any[]) {
 
 function parseStockItem(text: string) {
   const values: Record<string, string> = {};
-  for (const line of text.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) {
+  const lines = text.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
+  if (lines.length === 1 && !/^(?:ad|user|pass|password|şifre|link)\s*[:=]/i.test(lines[0])) {
+    const separator = lines[0].indexOf(":");
+    if (separator > 0 && separator < lines[0].length - 1) {
+      values.username = lines[0].slice(0, separator).trim();
+      values.password = lines[0].slice(separator + 1).trim();
+    }
+  }
+  for (const line of lines) {
     const match = line.match(/^(ad|user|kullanıcı adı|pass|password|şifre|link)\s*[:=]?\s*(.+)$/i);
     if (!match) continue;
     const key = /^(ad|user|kullanıcı adı)$/i.test(match[1]) ? "username" : /^(pass|password|şifre)$/i.test(match[1]) ? "password" : "link";
     values[key] = match[2].trim();
   }
-  if (!values.username || !values.password || !values.link) return null;
-  if (!/^https?:\/\//i.test(values.link)) values.link = `http://${values.link}`;
+  if (!values.username || !values.password) return null;
+  if (values.link && !/^https?:\/\//i.test(values.link)) values.link = `http://${values.link}`;
   return values;
 }
 
@@ -200,12 +208,12 @@ async function handleShopWizard(connection: mysql.Connection, message: any, text
     if (!Number.isInteger(count) || count < 1 || count > 5000) { await sendMessage(chatId, "Stok 1 ile 5000 arasında bir sayı olmalı."); return { ok: true, invalidStock: true }; }
     const [product] = await connection.execute<any>("INSERT INTO shopProducts (name, description, price) VALUES (?, ?, ?)", [draft.productName, draft.description, draft.price]);
     await connection.execute("UPDATE shopDrafts SET step = 'item', stockTotal = ?, productId = ?, currentItem = 1 WHERE telegramUserId = ?", [count, product.insertId, ADMIN_USER_ID]);
-    await sendMessage(chatId, `Stok kaydı başladı. 1/${count} ürünü şu formatta gönderin:\n\nad Memo\npass şifre\nlink http://ornek.com`);
+    await sendMessage(chatId, `Stok kaydı başladı. 1/${count} ürünü şu formatlardan biriyle gönderin:\n\nSteam / hesap:\ndokq84380:Elden78998877\n\nIPTV:\nad Memo\npass şifre\nlink http://ornek.com`);
     return { ok: true, shopWizard: "item", stockTotal: count };
   }
   if (draft.step === "item") {
     const item = parseStockItem(text);
-    if (!item) { await sendMessage(chatId, "Format eksik. Şu üç satırı gönderin:\nad Memo\npass şifre\nlink http://ornek.com"); return { ok: true, invalidStockItem: true }; }
+    if (!item) { await sendMessage(chatId, "Format eksik. Steam için tek satır:\ndokq84380:Elden78998877\n\nIPTV için:\nad Memo\npass şifre\nlink http://ornek.com"); return { ok: true, invalidStockItem: true }; }
     await connection.execute("INSERT INTO shopStock (productId, itemData) VALUES (?, ?)", [draft.productId, JSON.stringify(item)]);
     if (draft.currentItem >= draft.stockTotal) {
       await connection.execute("DELETE FROM shopDrafts WHERE telegramUserId = ?", [ADMIN_USER_ID]);
@@ -213,7 +221,7 @@ async function handleShopWizard(connection: mysql.Connection, message: any, text
       return { ok: true, shopCreated: draft.productId };
     }
     await connection.execute("UPDATE shopDrafts SET currentItem = currentItem + 1 WHERE telegramUserId = ?", [ADMIN_USER_ID]);
-    await sendMessage(chatId, `${draft.currentItem + 1}/${draft.stockTotal} ürünü gönderin:\nad Memo\npass şifre\nlink http://ornek.com`);
+    await sendMessage(chatId, `${draft.currentItem + 1}/${draft.stockTotal} ürünü gönderin. Steam: dokq84380:Elden78998877 | IPTV: ad Memo / pass şifre / link http://ornek.com`);
     return { ok: true, stockAdded: draft.currentItem };
   }
   return null;
@@ -251,7 +259,7 @@ async function handleShopOrderDecision(connection: mysql.Connection, message: an
   const item = JSON.parse(stockRows[0].itemData);
   await connection.execute("UPDATE shopStock SET status = 'sold', buyerTelegramUserId = ?, soldAt = NOW() WHERE id = ? AND status = 'available'", [order.buyerTelegramUserId, stockRows[0].id]);
   await connection.execute("UPDATE shopOrders SET status = 'approved', stockId = ?, approvedAt = NOW() WHERE id = ?", [stockRows[0].id, orderId]);
-  await sendMessage(String(order.buyerTelegramUserId), `CRACKTEAM MAĞAZA\n━━━━━━━━━━━━━━━━━━━━\nSipariş #${orderId} onaylandı.\nÜrün: ${order.name}\n\nAD  ${item.username}\nPASS  ${item.password}\nLINK  ${item.link}\n\nGüle güle kullan!`);
+  await sendMessage(String(order.buyerTelegramUserId), `CRACKTEAM MAĞAZA\n━━━━━━━━━━━━━━━━━━━━\nSipariş #${orderId} onaylandı.\nÜrün: ${order.name}\n\nAD  ${item.username}\nŞİFRE  ${item.password}${item.link ? `\nLINK  ${item.link}` : ""}\n\nGüle güle kullan!`);
   await sendMessage(String(message.chat?.id ?? ""), `#${orderId} onaylandı. Stoktan 1 adet düşüldü ve bilgiler kullanıcıya DM gönderildi.`);
   return { ok: true, approved: orderId, stockId: stockRows[0].id };
 }
