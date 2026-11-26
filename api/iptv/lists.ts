@@ -26,7 +26,24 @@ function parseM3u(input: string): Channel[] {
       pending = null;
     }
   }
-  return channels.slice(0, 5000);
+  if (channels.length) return channels.slice(0, 5000);
+  // Some providers return a minimal playlist containing only stream URLs.
+  return lines.filter((line) => /^https?:\/\//i.test(line)).slice(0, 5000).map((url, index) => ({ name: `Kanal ${index + 1}`, url }));
+}
+
+function isHttpUrl(value: string) {
+  return /^https?:\/\//i.test(value);
+}
+
+function providerApiUrl(value: string) {
+  const url = new URL(value);
+  if (!isHttpUrl(url.toString())) throw new Error("Provider link must use HTTP or HTTPS");
+  const path = url.pathname.toLowerCase();
+  if (path.endsWith("/player_api.php")) return url;
+  if (path.endsWith("/get.php") || path.endsWith("/xmltv.php")) url.pathname = path.slice(0, path.lastIndexOf("/")) + "/player_api.php";
+  else url.pathname = `${url.pathname.replace(/\/$/, "")}/player_api.php`;
+  url.search = "";
+  return url;
 }
 
 async function ensureTable(connection: mysql.Connection) {
@@ -74,7 +91,7 @@ export default async function handler(req: any, res: any) {
       if (!raw) return res.status(400).json({ ok: false, error: "M3U content or URL is required" });
       if (/^https?:\/\//i.test(raw)) {
         sourceUrl = raw;
-        const response = await fetch(raw, { signal: AbortSignal.timeout(15000) });
+        const response = await fetch(raw, { redirect: "follow", signal: AbortSignal.timeout(15000) });
         if (!response.ok) return res.status(400).json({ ok: false, error: "M3U URL could not be downloaded" });
         channels = parseM3u((await response.text()).slice(0, 10_000_000));
       } else {
@@ -83,16 +100,30 @@ export default async function handler(req: any, res: any) {
       if (!channels.length) return res.status(400).json({ ok: false, error: "No channels found in M3U" });
     } else {
       if (!providerLink || !providerUsername || !providerPassword) return res.status(400).json({ ok: false, error: "Provider link, username and password are required" });
-      const apiUrl = new URL(providerLink);
-      apiUrl.pathname = apiUrl.pathname.replace(/\/$/, "") + "/player_api.php";
+      const apiUrl = providerApiUrl(providerLink);
       apiUrl.searchParams.set("username", providerUsername);
       apiUrl.searchParams.set("password", providerPassword);
+      apiUrl.searchParams.set("action", "get_live_streams");
       const response = await fetch(apiUrl, { signal: AbortSignal.timeout(15000) });
       if (response.ok) {
         const payload: any = await response.json().catch(() => null);
         const streams = Array.isArray(payload?.available_channels) ? payload.available_channels : Array.isArray(payload?.live_streams) ? payload.live_streams : [];
         channels = streams.slice(0, 5000).map((item: any) => ({ name: String(item.name ?? item.stream_name ?? "Kanal"), url: String(item.stream_url ?? item.url ?? ""), group: item.category_name ? String(item.category_name) : undefined, logo: item.stream_icon ? String(item.stream_icon) : undefined })).filter((item: Channel) => item.url);
       }
+      // Standard Xtream panels expose a get.php M3U endpoint when the API
+      // response is empty or uses a non-standard stream field.
+      if (!channels.length) {
+        const playlistUrl = new URL(providerLink);
+        playlistUrl.pathname = `${playlistUrl.pathname.replace(/\/$|\/player_api\.php$|\/get\.php$/i, "")}/get.php`;
+        playlistUrl.search = "";
+        playlistUrl.searchParams.set("username", providerUsername);
+        playlistUrl.searchParams.set("password", providerPassword);
+        playlistUrl.searchParams.set("type", "m3u_plus");
+        playlistUrl.searchParams.set("output", "ts");
+        const playlistResponse = await fetch(playlistUrl, { redirect: "follow", signal: AbortSignal.timeout(15000) });
+        if (playlistResponse.ok) channels = parseM3u((await playlistResponse.text()).slice(0, 10_000_000));
+      }
+      if (!channels.length) return res.status(400).json({ ok: false, error: "Provider connected but returned no live channels" });
     }
     await connection.execute("INSERT INTO iptvLists (accountUsername, name, sourceType, sourceUrl, providerUsername, providerPassword, providerLink, channels) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [account.username, name, sourceType, sourceUrl, providerUsername, providerPassword, providerLink, JSON.stringify(channels)]);
     return res.status(201).json({ ok: true, name, sourceType, channelCount: channels.length, channels });
