@@ -107,8 +107,12 @@ export default async function handler(req: any, res: any) {
       const response = await fetch(apiUrl, { signal: AbortSignal.timeout(15000) });
       if (response.ok) {
         const payload: any = await response.json().catch(() => null);
-        const streams = Array.isArray(payload?.available_channels) ? payload.available_channels : Array.isArray(payload?.live_streams) ? payload.live_streams : [];
-        channels = streams.slice(0, 5000).map((item: any) => ({ name: String(item.name ?? item.stream_name ?? "Kanal"), url: String(item.stream_url ?? item.url ?? ""), group: item.category_name ? String(item.category_name) : undefined, logo: item.stream_icon ? String(item.stream_icon) : undefined })).filter((item: Channel) => item.url);
+        const streams = Array.isArray(payload) ? payload : Array.isArray(payload?.available_channels) ? payload.available_channels : Array.isArray(payload?.live_streams) ? payload.live_streams : [];
+        channels = streams.slice(0, 5000).map((item: any) => {
+          const streamId = item.stream_id ?? item.id;
+          const fallbackUrl = streamId !== undefined && streamId !== null ? `${apiUrl.origin}/live/${encodeURIComponent(providerUsername)}/${encodeURIComponent(providerPassword)}/${encodeURIComponent(String(streamId))}.ts` : "";
+          return { name: String(item.name ?? item.stream_name ?? "Kanal"), url: String(item.stream_url ?? item.url ?? item.direct_source ?? fallbackUrl), group: item.category_name ? String(item.category_name) : undefined, logo: item.stream_icon ? String(item.stream_icon) : undefined };
+        }).filter((item: Channel) => isHttpUrl(item.url));
       }
       // Standard Xtream panels expose a get.php M3U endpoint when the API
       // response is empty or uses a non-standard stream field.
