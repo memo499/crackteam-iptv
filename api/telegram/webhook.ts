@@ -4,7 +4,7 @@ import mysql from "mysql2/promise";
 const CHANNEL = "havadanyardim";
 const CATEGORY_RE = /^@(iptv|steam|mail|film|spor|haber)(?:\s|$)/i;
 const PLAN_STARS = { pro: 50, ultra: 100 } as const;
-const ADMIN_USER_ID = process.env.TELEGRAM_ADMIN_USER_ID ?? "23913881382";
+const ADMIN_USER_ID = "23913881382";
 const ADMIN_USERNAME = process.env.TELEGRAM_ADMIN_USERNAME ?? "@crackbaba";
 type Category = "iptv" | "steam" | "mail" | "film" | "spor" | "haber";
 type PaidPlan = keyof typeof PLAN_STARS;
