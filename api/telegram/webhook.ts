@@ -38,6 +38,16 @@ async function sendShopFile(chatId: string, item: any, caption: string) {
   });
 }
 
+async function copyShopMessage(chatId: string, item: any) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  await fetch(`https://api.telegram.org/bot${token}/copyMessage`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, from_chat_id: item.sourceChatId, message_id: item.sourceMessageId }),
+  });
+}
+
 function newRequestId() {
   return `CT-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
 }
@@ -168,7 +178,7 @@ function shopMessage(rows: any[]) {
 function parseStockItem(text: string) {
   const values: Record<string, string> = {};
   const lines = text.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
-  if (lines.length === 1 && !/^(?:ad|user|pass|password|şifre|link)\s*[:=]/i.test(lines[0])) {
+  if (lines.length === 1 && !/^https?:\/\//i.test(lines[0]) && !/^(?:ad|user|pass|password|şifre|link)\s*[:=]/i.test(lines[0])) {
     const separator = lines[0].indexOf(":");
     if (separator > 0 && separator < lines[0].length - 1) {
       values.username = lines[0].slice(0, separator).trim();
@@ -191,6 +201,13 @@ function parseShopFile(message: any) {
   if (message.audio?.file_id) return { kind: "file", mediaType: "audio", fileId: String(message.audio.file_id), fileName: String(message.audio.file_name ?? "ses.mp3") };
   if (message.video?.file_id) return { kind: "file", mediaType: "video", fileId: String(message.video.file_id), fileName: "video.mp4" };
   return null;
+}
+
+function parseShopMessage(message: any) {
+  if (!message.message_id || !message.chat?.id) return null;
+  const hasContent = Boolean(message.text || message.caption || message.photo || message.video || message.audio || message.document || message.voice || message.animation || message.sticker || message.contact || message.location || message.poll);
+  if (!hasContent) return null;
+  return { kind: "message", sourceChatId: String(message.chat.id), sourceMessageId: Number(message.message_id) };
 }
 
 async function handleShopList(connection: mysql.Connection, message: any) {
@@ -227,12 +244,12 @@ async function handleShopWizard(connection: mysql.Connection, message: any, text
     if (!Number.isInteger(count) || count < 1 || count > 5000) { await sendMessage(chatId, "Stok 1 ile 5000 arasında bir sayı olmalı."); return { ok: true, invalidStock: true }; }
     const [product] = await connection.execute<any>("INSERT INTO shopProducts (name, description, price) VALUES (?, ?, ?)", [draft.productName, draft.description, draft.price]);
     await connection.execute("UPDATE shopDrafts SET step = 'item', stockTotal = ?, productId = ?, currentItem = 1 WHERE telegramUserId = ?", [count, product.insertId, ADMIN_USER_ID]);
-    await sendMessage(chatId, `Stok kaydı başladı. 1/${count} ürünü şu formatlardan biriyle gönderin:\n\nSteam / hesap:\ndokq84380:Elden78998877\n\nIPTV:\nad Memo\npass şifre\nlink http://ornek.com\n\nDosya ürünü:\nMP4, MP3 veya APK dosyasını direkt gönderin.`);
+    await sendMessage(chatId, `Stok kaydı başladı. 1/${count} ürünü direkt Telegram mesajı olarak gönderin.\n\nDesteklenenler: düz metin, kullanıcı:şifre, IPTV bilgisi, fotoğraf, video, MP3, MP4, APK, belge, ses, sticker ve diğer mesaj türleri.`);
     return { ok: true, shopWizard: "item", stockTotal: count };
   }
   if (draft.step === "item") {
-    const item = parseShopFile(message) ?? parseStockItem(text);
-    if (!item) { await sendMessage(chatId, "Format eksik. Steam için tek satır:\ndokq84380:Elden78998877\n\nIPTV için:\nad Memo\npass şifre\nlink http://ornek.com\n\nMP4, MP3 veya APK için dosyayı direkt gönderin."); return { ok: true, invalidStockItem: true }; }
+    const item = parseStockItem(text) ?? parseShopFile(message) ?? parseShopMessage(message);
+    if (!item) { await sendMessage(chatId, "Bu mesaj türü stok olarak alınamadı. Düz metin, fotoğraf, video, ses, belge veya dosya gönderin."); return { ok: true, invalidStockItem: true }; }
     await connection.execute("INSERT INTO shopStock (productId, itemData) VALUES (?, ?)", [draft.productId, JSON.stringify(item)]);
     if (draft.currentItem >= draft.stockTotal) {
       await connection.execute("DELETE FROM shopDrafts WHERE telegramUserId = ?", [ADMIN_USER_ID]);
@@ -240,7 +257,7 @@ async function handleShopWizard(connection: mysql.Connection, message: any, text
       return { ok: true, shopCreated: draft.productId };
     }
     await connection.execute("UPDATE shopDrafts SET currentItem = currentItem + 1 WHERE telegramUserId = ?", [ADMIN_USER_ID]);
-    await sendMessage(chatId, `${draft.currentItem + 1}/${draft.stockTotal} ürünü gönderin. Steam: dokq84380:Elden78998877 | IPTV: ad Memo / pass şifre / link http://ornek.com | Dosya: MP4, MP3 veya APK gönderin.`);
+    await sendMessage(chatId, `${draft.currentItem + 1}/${draft.stockTotal} ürünü direkt Telegram mesajı olarak gönderin.`);
     return { ok: true, stockAdded: draft.currentItem };
   }
   return null;
@@ -278,7 +295,10 @@ async function handleShopOrderDecision(connection: mysql.Connection, message: an
   const item = JSON.parse(stockRows[0].itemData);
   await connection.execute("UPDATE shopStock SET status = 'sold', buyerTelegramUserId = ?, soldAt = NOW() WHERE id = ? AND status = 'available'", [order.buyerTelegramUserId, stockRows[0].id]);
   await connection.execute("UPDATE shopOrders SET status = 'approved', stockId = ?, approvedAt = NOW() WHERE id = ?", [stockRows[0].id, orderId]);
-  if (item.kind === "file") {
+  if (item.kind === "message") {
+    await sendMessage(String(order.buyerTelegramUserId), `CRACKTEAM MAĞAZA\nSipariş #${orderId} onaylandı.\nÜrün: ${order.name}\n\nÜrün mesajı aşağıda gönderiliyor.`);
+    await copyShopMessage(String(order.buyerTelegramUserId), item);
+  } else if (item.kind === "file") {
     await sendShopFile(String(order.buyerTelegramUserId), item, `CRACKTEAM MAĞAZA\nSipariş #${orderId} onaylandı.\nÜrün: ${order.name}\nDosya: ${item.fileName}\n\nGüle güle kullan!`);
   } else {
     await sendMessage(String(order.buyerTelegramUserId), `CRACKTEAM MAĞAZA\n━━━━━━━━━━━━━━━━━━━━\nSipariş #${orderId} onaylandı.\nÜrün: ${order.name}\n\nAD  ${item.username}\nŞİFRE  ${item.password}${item.link ? `\nLINK  ${item.link}` : ""}\n\nGüle güle kullan!`);
