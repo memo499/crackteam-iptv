@@ -4,7 +4,7 @@ import mysql from "mysql2/promise";
 const CHANNEL = "havadanyardim";
 const CATEGORY_RE = /^@(iptv|steam|mail|film|spor|haber)(?:\s|$)/i;
 const PLAN_STARS = { pro: 50, ultra: 100 } as const;
-const ADMIN_USER_ID = process.env.TELEGRAM_ADMIN_USER_ID ?? "7414579378";
+const ADMIN_USER_ID = process.env.TELEGRAM_ADMIN_USER_ID ?? "23913881382";
 const ADMIN_USERNAME = process.env.TELEGRAM_ADMIN_USERNAME ?? "@crackbaba";
 type Category = "iptv" | "steam" | "mail" | "film" | "spor" | "haber";
 type PaidPlan = keyof typeof PLAN_STARS;
@@ -28,6 +28,33 @@ async function sendMessage(chatId: string, text: string) {
 
 function newRequestId() {
   return `CT-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
+}
+
+function newTransactionCode() {
+  const digits = (length: number) => crypto.randomInt(0, 10 ** length).toString().padStart(length, "0");
+  const letters = (length: number) => Array.from({ length }, () => String.fromCharCode(65 + crypto.randomInt(0, 26))).join("");
+  return `${digits(3)} ${letters(3)} ${digits(3)} ${letters(3)} ${digits(2)}`;
+}
+
+function approvalReceipt(request: any, transactionCode: string) {
+  const plan = String(request.plan).toUpperCase();
+  const username = String(request.accountUsername).toUpperCase();
+  return [
+    `CRACKTEAM IPTV ${plan} SATIN ALIMI`,
+    "",
+    "━━━━━━━━━━━━━━━━━━━━",
+    `ADMİN ID  ${ADMIN_USER_ID}`,
+    `İŞLEM KODU  ${transactionCode}`,
+    "━━━━━━━━━━━━━━━━━━━━",
+    `USER  ${username}`,
+    "PASS  ##",
+    "",
+    `${plan} PAKET ALIMI ONAYLANDI`,
+    "Hesabın başarıyla aktif edildi.",
+    "",
+    "CRACKTEAM IPTV ailesine hoş geldin.",
+    "Güle güle kullan!",
+  ].join("\n");
 }
 
 async function createSubscriptionRequest(connection: mysql.Connection, message: any, plan: PaidPlan, username: string) {
@@ -106,9 +133,10 @@ async function handleAdminApproval(connection: mysql.Connection, message: any, t
   await connection.execute("UPDATE subscriptionRequests SET status = 'approved', approvedAt = NOW() WHERE requestId = ?", [request.requestId]);
   await connection.execute("INSERT INTO telegramUsers (telegramUserId, username, plan) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE username = VALUES(username), plan = VALUES(plan), trialExpiresAt = NULL", [String(request.telegramUserId), request.telegramUsername ?? null, request.plan]);
   await connection.execute("UPDATE iptvAccounts SET plan = ? WHERE username = ?", [request.plan, request.accountUsername]);
-  await sendMessage(String(request.telegramUserId), `${String(request.plan).toUpperCase()} aboneliğin onaylandı. Hesabın aktif edildi.`);
-  await sendMessage(String(message.chat?.id ?? ""), `${request.accountUsername} hesabının ${String(request.plan).toUpperCase()} aboneliği aktif edildi.`);
-  return { ok: true, approved: request.requestId, plan: request.plan };
+  const transactionCode = newTransactionCode();
+  await sendMessage(String(request.telegramUserId), approvalReceipt(request, transactionCode));
+  await sendMessage(String(message.chat?.id ?? ""), `Onay tamamlandı.\n\n${request.accountUsername} hesabı ${String(request.plan).toUpperCase()} planına geçirildi.\nİşlem kodu: ${transactionCode}`);
+  return { ok: true, approved: request.requestId, plan: request.plan, transactionCode };
 }
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
