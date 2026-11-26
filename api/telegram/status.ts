@@ -4,7 +4,7 @@ export default function handler(_req: any, res: any) {
     configured: Boolean(process.env.TELEGRAM_BOT_TOKEN),
     channel: "@havadanyardim",
     triggers: ["@iptv", "@steam", "@mail", "@film", "@spor", "@haber"],
-    commands: ["/start", "/kayit", "/register", "/id", "/paket Pro Ahmet", "/paket Ultra Ahmet", "/ahmetonay", "/ahmethayır", "/evet", "/hayır"],
+    commands: ["/start", "/kayit", "/register", "/id", "/help", "/paket Pro Ahmet", "/paket Ultra Ahmet", "/ahmetonay", "/ahmethayır", "/evet", "/hayır"],
     adminUserIdConfigured: true,
     webhookPath: "/api/telegram/webhook",
   });

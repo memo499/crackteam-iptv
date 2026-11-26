@@ -4,7 +4,7 @@ import mysql from "mysql2/promise";
 const CHANNEL = "havadanyardim";
 const CATEGORY_RE = /^@(iptv|steam|mail|film|spor|haber)(?:\s|$)/i;
 const PLAN_STARS = { pro: 50, ultra: 100 } as const;
-const ADMIN_USER_ID = "23913881382";
+const ADMIN_USER_ID = "7414579378";
 const ADMIN_USERNAME = process.env.TELEGRAM_ADMIN_USERNAME ?? "@crackbaba";
 type Category = "iptv" | "steam" | "mail" | "film" | "spor" | "haber";
 type PaidPlan = keyof typeof PLAN_STARS;
@@ -54,6 +54,39 @@ function approvalReceipt(request: any, transactionCode: string) {
     "",
     "CRACKTEAM IPTV ailesine hoş geldin.",
     "Güle güle kullan!",
+  ].join("\n");
+}
+
+function helpMessage() {
+  return [
+    "CRACKTEAM İPTV / CT BOT",
+    "━━━━━━━━━━━━━━━━━━━━",
+    "Hoş geldin. Paket, kayıt ve destek işlemlerini buradan yönetebilirsin.",
+    "",
+    "KULLANICI KOMUTLARI",
+    "/start — 30 günlük Ultra deneme kaydı",
+    "/id — Telegram kullanıcı ID’ni gösterir",
+    "/paket Pro Ahmet — Pro başvurusu",
+    "/paket Ultra Ahmet — Ultra başvurusu",
+    "/help — Bu yardım menüsü",
+    "",
+    "PAKET BAŞVURU AKIŞI",
+    "1. /paket Pro Ahmet veya /paket Ultra Ahmet yaz.",
+    `2. ${ADMIN_USERNAME} hesabına gerekli Telegram Yıldızını gönder.`,
+    `3. Ödeme sonrası ${ADMIN_USERNAME} hesabına DM at.`,
+    "4. Admin kontrolünden sonra hesabın aktif edilir.",
+    "",
+    "ADMİN KOMUTLARI",
+    `Admin ID: ${ADMIN_USER_ID}`,
+    "/ahmetonay — Kullanıcı adına göre onayla",
+    "/ahmethayır — Kullanıcı adına göre reddet",
+    "/onay CT-XXXXXXXX — Talep koduyla onayla",
+    "/evet veya /hayır — Sıradaki talebi yönet",
+    "",
+    "GÜVENLİK",
+    "Parolanı Telegram’a gönderme. Bot parola istemez, kaydetmez ve onay mesajında yalnızca ## gösterir.",
+    "",
+    "Destek için admin hesabına DM gönderebilirsin.",
   ].join("\n");
 }
 
@@ -148,6 +181,10 @@ export default async function handler(req: any, res: any) {
   if (!message) return res.json({ ok: true, ignored: "not_supported" });
   const text = String(message.text ?? message.caption ?? "");
   const chatId = String(message.chat?.id ?? "");
+  if (update.message && /^\/help(?:@\w+)?\b/i.test(text.trim())) {
+    await sendMessage(chatId, helpMessage());
+    return res.json({ ok: true, help: true });
+  }
   let connection: mysql.Connection | undefined;
   try {
     connection = await mysql.createConnection(process.env.DATABASE_URL);
