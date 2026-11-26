@@ -111,7 +111,8 @@ export default async function handler(req: any, res: any) {
         channels = streams.slice(0, 5000).map((item: any) => {
           const streamId = item.stream_id ?? item.id;
           const fallbackUrl = streamId !== undefined && streamId !== null ? `${apiUrl.origin}/live/${encodeURIComponent(providerUsername)}/${encodeURIComponent(providerPassword)}/${encodeURIComponent(String(streamId))}.ts` : "";
-          return { name: String(item.name ?? item.stream_name ?? "Kanal"), url: String(item.stream_url ?? item.url ?? item.direct_source ?? fallbackUrl), group: item.category_name ? String(item.category_name) : undefined, logo: item.stream_icon ? String(item.stream_icon) : undefined };
+          const directUrl = [item.stream_url, item.url, item.direct_source].find((value) => typeof value === "string" && isHttpUrl(value));
+          return { name: String(item.name ?? item.stream_name ?? "Kanal"), url: String(directUrl ?? fallbackUrl), group: item.category_name ? String(item.category_name) : undefined, logo: item.stream_icon ? String(item.stream_icon) : undefined };
         }).filter((item: Channel) => isHttpUrl(item.url));
       }
       // Standard Xtream panels expose a get.php M3U endpoint when the API
